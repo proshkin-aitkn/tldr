@@ -68,7 +68,7 @@ Used to persist user settings (theme preference, summary language, detail level)
 Used to inject the content extraction script into the active tab when the user requests a summary. The script extracts the page's text content for summarization.
 
 ### Host permissions (<all_urls>)
-Required to extract text content from any web page the user chooses to summarize. The extension supports summarizing content from any website, so broad host permissions are necessary. Content is only accessed when the user explicitly initiates a summary.
+Required to extract text content from any web page. The extension reads page metadata (title, word count) when the side panel opens. The extracted content is only sent to an external AI provider when the user explicitly clicks "Summarize". Broad host permissions are necessary because the extension supports summarizing content from any website.
 
 ---
 
