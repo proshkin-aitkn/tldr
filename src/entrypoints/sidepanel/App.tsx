@@ -124,9 +124,20 @@ export function App() {
       }
     };
 
+    // Re-link to the current active tab when the locked tab is closed
+    const onRemoved = (tabId: number) => {
+      if (tabId !== lockedTabId) return;
+      setLockedTabId(null);
+      setSummary(null);
+      setChatMessages([]);
+      extractContent();
+    };
+
     chromeObj.tabs.onUpdated.addListener(onUpdated);
+    chromeObj.tabs.onRemoved.addListener(onRemoved);
     return () => {
       chromeObj.tabs.onUpdated.removeListener(onUpdated);
+      chromeObj.tabs.onRemoved.removeListener(onRemoved);
       if (spaTimer) clearTimeout(spaTimer);
     };
   }, [lockedTabId, extractContent]);
