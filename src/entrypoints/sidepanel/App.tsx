@@ -590,6 +590,7 @@ function IconButton({ onClick, label, children }: { onClick: () => void; label: 
     <button
       onClick={onClick}
       aria-label={label}
+      title={label}
       style={{
         background: 'none',
         border: 'none',

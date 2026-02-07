@@ -140,6 +140,7 @@ export function SummaryContent({ summary, content, onExport }: SummaryContentPro
       <div style={{ display: 'flex', gap: '8px', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid var(--md-sys-color-outline-variant)' }}>
         <button
           onClick={onExport}
+          title="Export summary to Notion"
           style={{
             padding: '8px 20px',
             borderRadius: '20px',
@@ -240,6 +241,7 @@ function Section({ title, defaultOpen = false, children }: { title: string; defa
     <div style={{ marginBottom: '4px' }}>
       <button
         onClick={() => setOpen(!open)}
+        title={open ? `Collapse ${title}` : `Expand ${title}`}
         style={{
           background: 'none',
           border: 'none',

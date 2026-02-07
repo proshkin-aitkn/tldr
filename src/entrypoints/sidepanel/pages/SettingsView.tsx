@@ -216,7 +216,7 @@ export function SettingsView({ settings, onSave, onTestLLM, onTestNotion, onFetc
       />
 
       <div style={{ display: 'flex', gap: '8px', marginTop: '12px', alignItems: 'center' }}>
-        <Button onClick={handleTestLLM} loading={testingLLM} size="sm" variant="secondary">
+        <Button onClick={handleTestLLM} loading={testingLLM} size="sm" variant="secondary" title="Test LLM connection">
           Test Connection
         </Button>
         {llmStatus === 'success' && <StatusBadge type="success">Connected!</StatusBadge>}
@@ -254,13 +254,13 @@ export function SettingsView({ settings, onSave, onTestLLM, onTestNotion, onFetc
             <option key={db.id} value={db.id}>{db.title}</option>
           ))}
         </select>
-        <Button onClick={handleFetchDatabases} loading={loadingDbs} size="sm" variant="ghost">
+        <Button onClick={handleFetchDatabases} loading={loadingDbs} size="sm" variant="ghost" title="Fetch Notion databases">
           Fetch
         </Button>
       </div>
 
       <div style={{ display: 'flex', gap: '8px', marginTop: '12px', alignItems: 'center' }}>
-        <Button onClick={handleTestNotion} loading={testingNotion} size="sm" variant="secondary">
+        <Button onClick={handleTestNotion} loading={testingNotion} size="sm" variant="secondary" title="Test Notion connection">
           Test Connection
         </Button>
         {notionStatus === 'success' && <StatusBadge type="success">Connected!</StatusBadge>}
@@ -279,6 +279,7 @@ export function SettingsView({ settings, onSave, onTestLLM, onTestNotion, onFetc
               onThemeChange(m);
               setLocal({ ...local, theme: m });
             }}
+            title={`Switch to ${m} theme`}
             style={{
               flex: 1,
               padding: '8px 12px',
@@ -324,6 +325,7 @@ export function SettingsView({ settings, onSave, onTestLLM, onTestNotion, onFetc
                   : [...current, l.code];
                 setLocal({ ...local, summaryLanguageExcept: next });
               }}
+              title={active ? `Remove ${l.name} from exceptions` : `Don't translate ${l.name} content`}
               style={{
                 padding: '4px 10px',
                 borderRadius: '16px',
@@ -357,7 +359,7 @@ export function SettingsView({ settings, onSave, onTestLLM, onTestNotion, onFetc
       </select>
 
       <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--md-sys-color-outline-variant)' }}>
-        <Button onClick={handleSave}>Save Settings</Button>
+        <Button onClick={handleSave} title="Save all settings">Save Settings</Button>
       </div>
     </div>
   );

@@ -80,6 +80,7 @@ export function SettingsDrawer({ open, onClose, children }: SettingsDrawerProps)
               justifyContent: 'center',
             }}
             aria-label="Close settings"
+            title="Close settings"
           >
             &#10005;
           </button>

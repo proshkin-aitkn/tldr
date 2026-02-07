@@ -82,6 +82,7 @@ export function ChatInputBar({ value, onChange, onSubmit, isFirstSubmit, loading
           <button
             onClick={onSubmit}
             disabled={!canSubmit}
+            title="Summarize page content"
             style={{
               padding: '8px 20px',
               borderRadius: '20px',
@@ -127,6 +128,7 @@ export function ChatInputBar({ value, onChange, onSubmit, isFirstSubmit, loading
               transition: 'background-color 0.15s, color 0.15s',
             }}
             aria-label="Send"
+            title="Send message"
           >
             {loading ? <SmallSpinner /> : <SendIcon />}
           </button>

@@ -8,10 +8,11 @@ interface ButtonProps {
   disabled?: boolean;
   onClick?: () => void;
   style?: JSX.CSSProperties;
+  title?: string;
   children?: preact.ComponentChildren;
 }
 
-export function Button({ variant = 'primary', size = 'md', loading, children, disabled, style, onClick }: ButtonProps) {
+export function Button({ variant = 'primary', size = 'md', loading, children, disabled, style, title, onClick }: ButtonProps) {
   const [hovered, setHovered] = useState(false);
 
   const baseStyle: JSX.CSSProperties = {
@@ -46,6 +47,7 @@ export function Button({ variant = 'primary', size = 'md', loading, children, di
       style={baseStyle}
       disabled={disabled || loading}
       onClick={onClick}
+      title={title}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
