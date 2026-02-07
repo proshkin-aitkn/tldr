@@ -404,7 +404,7 @@ export function App() {
             <SummaryContent
               summary={summary}
               content={content}
-              onExport={handleExport}
+              onExport={settings.notion.apiKey ? handleExport : undefined}
             />
           </div>
         )}

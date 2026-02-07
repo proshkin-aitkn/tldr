@@ -11,7 +11,7 @@ const LANG_LABELS: Record<string, string> = {
 interface SummaryContentProps {
   summary: SummaryDocument;
   content: ExtractedContent | null;
-  onExport: () => void;
+  onExport?: () => void;
 }
 
 export function SummaryContent({ summary, content, onExport }: SummaryContentProps) {
@@ -137,23 +137,25 @@ export function SummaryContent({ summary, content, onExport }: SummaryContentPro
       )}
 
       {/* Export action */}
-      <div style={{ display: 'flex', gap: '8px', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid var(--md-sys-color-outline-variant)' }}>
-        <button
-          onClick={onExport}
-          title="Export summary to Notion"
-          style={{
-            padding: '8px 20px',
-            borderRadius: '20px',
-            border: 'none',
-            backgroundColor: 'var(--md-sys-color-primary)',
-            color: 'var(--md-sys-color-on-primary)',
-            font: 'var(--md-sys-typescale-label-large)',
-            cursor: 'pointer',
-          }}
-        >
-          Export to Notion
-        </button>
-      </div>
+      {onExport && (
+        <div style={{ display: 'flex', gap: '8px', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid var(--md-sys-color-outline-variant)' }}>
+          <button
+            onClick={onExport}
+            title="Export summary to Notion"
+            style={{
+              padding: '8px 20px',
+              borderRadius: '20px',
+              border: 'none',
+              backgroundColor: 'var(--md-sys-color-primary)',
+              color: 'var(--md-sys-color-on-primary)',
+              font: 'var(--md-sys-typescale-label-large)',
+              cursor: 'pointer',
+            }}
+          >
+            Export to Notion
+          </button>
+        </div>
+      )}
     </div>
   );
 }
