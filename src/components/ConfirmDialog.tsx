@@ -59,11 +59,41 @@ export function ConfirmDialog({
         }}
       >
         <div style={{
-          font: 'var(--md-sys-typescale-title-medium)',
-          color: 'var(--md-sys-color-on-surface)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
           marginBottom: '12px',
         }}>
-          {title}
+          <div style={{
+            font: 'var(--md-sys-typescale-title-medium)',
+            color: 'var(--md-sys-color-on-surface)',
+          }}>
+            {title}
+          </div>
+          <button
+            onClick={onDismiss}
+            aria-label="Close"
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--md-sys-color-on-surface-variant)',
+              padding: '4px',
+              marginRight: '-4px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '28px',
+              height: '28px',
+              flexShrink: 0,
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
         </div>
         <div style={{
           font: 'var(--md-sys-typescale-body-medium)',
