@@ -93,9 +93,10 @@ export function App() {
       const anchor = (e.target as HTMLElement).closest('a');
       if (!anchor) return;
       const href = anchor.getAttribute('href');
-      if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
+      if (!href || href.startsWith('#')) return;
+      try { const u = new URL(href, location.href); if (u.protocol !== 'https:' && u.protocol !== 'http:') return; } catch { return; }
       e.preventDefault();
-      window.open(href, '_blank', 'noopener,width=1024,height=768');
+      window.open(href, '_blank', 'noopener,noreferrer,width=1024,height=768');
     };
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
@@ -300,9 +301,12 @@ export function App() {
     }
   }, [content]);
 
-  const handleExport = useCallback(async () => {
-    if (!summary || !content) return;
+  const [exporting, setExporting] = useState(false);
 
+  const handleExport = useCallback(async () => {
+    if (!summary || !content || exporting) return;
+
+    setExporting(true);
     try {
       const response = await sendMessage({
         type: 'EXPORT',
@@ -319,8 +323,10 @@ export function App() {
       }
     } catch (err) {
       setToast({ message: err instanceof Error ? err.message : 'Export failed', type: 'error' });
+    } finally {
+      setExporting(false);
     }
-  }, [summary, content]);
+  }, [summary, content, exporting]);
 
   const handleChatSend = useCallback(async (text: string) => {
     if (!content) return;
@@ -560,6 +566,7 @@ export function App() {
               content={content}
               onExport={settings.notion.apiKey ? handleExport : undefined}
               notionUrl={notionUrl}
+              exporting={exporting}
             />
           </div>
         )}
