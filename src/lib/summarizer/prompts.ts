@@ -50,7 +50,7 @@ You MUST respond with valid JSON matching this exact structure (no markdown code
 }
 
 Guidelines:
-- "notableQuotes" should be actual quotes from the text (if any exist). Use an empty array if none found.
+- "notableQuotes" should be actual quotes from the text (if any exist). Use an empty array if none found. When the summary language differs from the source language, append a translation in parentheses after each quote, e.g. "Original quote" (Translation).
 - "prosAndCons" is optional — include it only if the content discusses trade-offs, comparisons, or evaluations. Set to null if not applicable.
 - "commentsHighlights" is optional — include it only if user comments/discussion is provided. Set to null if not applicable.
 - "relatedTopics" should suggest 3-5 topics someone reading this might also be interested in.
