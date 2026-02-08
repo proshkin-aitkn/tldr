@@ -18,12 +18,14 @@ import type {
   ExportResultMessage,
   FetchModelsResultMessage,
   ProbeVisionResultMessage,
+  CheckNotionDuplicateResultMessage,
 } from '@/lib/messaging/types';
 import type { ModelInfo } from '@/lib/llm/types';
 import { SummaryContent, MetadataHeader } from './pages/SummaryView';
 import { SettingsView } from './pages/SettingsView';
 import { getProviderDefinition } from '@/lib/llm/registry';
 import { Toast } from '@/components/Toast';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Spinner } from '@/components/Spinner';
 import { MarkdownRenderer } from '@/components/MarkdownRenderer';
 import { SettingsDrawer } from '@/components/SettingsDrawer';
@@ -302,22 +304,25 @@ export function App() {
   }, [content]);
 
   const [exporting, setExporting] = useState(false);
+  const [duplicateInfo, setDuplicateInfo] = useState<{ pageId: string; pageUrl: string; title: string } | null>(null);
 
-  const handleExport = useCallback(async () => {
-    if (!summary || !content || exporting) return;
+  const doExport = useCallback(async (replacePageId?: string) => {
+    if (!summary || !content) return;
 
     setExporting(true);
+    setDuplicateInfo(null);
     try {
       const response = await sendMessage({
         type: 'EXPORT',
         adapterId: 'notion',
         summary,
         content,
+        replacePageId,
       }) as ExportResultMessage;
 
       if (response.success && response.url) {
         setNotionUrl(response.url);
-        setToast({ message: 'Exported to Notion!', type: 'success' });
+        setToast({ message: replacePageId ? 'Updated in Notion!' : 'Exported to Notion!', type: 'success' });
       } else {
         setToast({ message: response.error || 'Export failed', type: 'error' });
       }
@@ -326,7 +331,35 @@ export function App() {
     } finally {
       setExporting(false);
     }
-  }, [summary, content, exporting]);
+  }, [summary, content]);
+
+  const handleExport = useCallback(async () => {
+    if (!summary || !content || exporting) return;
+
+    setExporting(true);
+    try {
+      const dupResponse = await sendMessage({
+        type: 'CHECK_NOTION_DUPLICATE',
+        url: content.url,
+      }) as CheckNotionDuplicateResultMessage;
+
+      if (dupResponse.success && dupResponse.duplicatePageId) {
+        setDuplicateInfo({
+          pageId: dupResponse.duplicatePageId,
+          pageUrl: dupResponse.duplicatePageUrl || '',
+          title: dupResponse.duplicateTitle || 'Untitled',
+        });
+        setExporting(false);
+        return;
+      }
+    } catch {
+      // Non-blocking — proceed with normal export
+    }
+
+    // No duplicate found — export directly
+    setExporting(false);
+    doExport();
+  }, [summary, content, exporting, doExport]);
 
   const handleChatSend = useCallback(async (text: string) => {
     if (!content) return;
@@ -621,6 +654,18 @@ export function App() {
           currentTheme={themeMode}
         />
       </SettingsDrawer>
+
+      {/* Duplicate page dialog */}
+      <ConfirmDialog
+        open={!!duplicateInfo}
+        title="Page already exported"
+        message={`"${duplicateInfo?.title}" is already in your Notion database. Update it or create a new page?`}
+        primaryLabel="Update existing"
+        secondaryLabel="Create new"
+        onPrimary={() => doExport(duplicateInfo!.pageId)}
+        onSecondary={() => doExport()}
+        onDismiss={() => setDuplicateInfo(null)}
+      />
 
       {/* Toast */}
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}

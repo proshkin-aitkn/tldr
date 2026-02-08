@@ -28,7 +28,9 @@ export type MessageType =
   | 'FETCH_IMAGES'
   | 'FETCH_IMAGES_RESULT'
   | 'PROBE_VISION'
-  | 'PROBE_VISION_RESULT';
+  | 'PROBE_VISION_RESULT'
+  | 'CHECK_NOTION_DUPLICATE'
+  | 'CHECK_NOTION_DUPLICATE_RESULT';
 
 export interface ExtractContentMessage {
   type: 'EXTRACT_CONTENT';
@@ -84,6 +86,7 @@ export interface ExportMessage {
   adapterId: string;
   summary: SummaryDocument;
   content: ExtractedContent;
+  replacePageId?: string;
 }
 
 export interface ExportResultMessage {
@@ -182,6 +185,20 @@ export interface ProbeVisionResultMessage {
   error?: string;
 }
 
+export interface CheckNotionDuplicateMessage {
+  type: 'CHECK_NOTION_DUPLICATE';
+  url: string;
+}
+
+export interface CheckNotionDuplicateResultMessage {
+  type: 'CHECK_NOTION_DUPLICATE_RESULT';
+  success: boolean;
+  duplicatePageId?: string;
+  duplicatePageUrl?: string;
+  duplicateTitle?: string;
+  error?: string;
+}
+
 export type Message =
   | ExtractContentMessage
   | ExtractResultMessage
@@ -207,4 +224,6 @@ export type Message =
   | FetchImagesMessage
   | FetchImagesResultMessage
   | ProbeVisionMessage
-  | ProbeVisionResultMessage;
+  | ProbeVisionResultMessage
+  | CheckNotionDuplicateMessage
+  | CheckNotionDuplicateResultMessage;

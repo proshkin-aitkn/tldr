@@ -6,8 +6,7 @@ import { markdownToNotionBlocks } from './markdown-to-notion';
 
 const NOTION_API = 'https://api.notion.com/v1';
 const NOTION_VERSION = '2022-06-28';
-// TODO: Update once the Chrome Web Store listing is approved
-const CHROME_STORE_URL = 'https://chromewebstore.google.com/detail/tl-dr/TODO';
+const CHROME_STORE_URL = 'https://chromewebstore.google.com/detail/pikdhogjjbaakcpedmahckhmajdgdeon';
 
 export class NotionAdapter implements ExportAdapter {
   readonly id = 'notion';
@@ -25,6 +24,36 @@ export class NotionAdapter implements ExportAdapter {
     } catch {
       return false;
     }
+  }
+
+  async findDuplicateByUrl(url: string): Promise<{ pageId: string; pageUrl: string; title: string } | null> {
+    if (!this.config.databaseId) return null;
+
+    const response = await this.notionFetch(`/databases/${this.config.databaseId}/query`, {
+      method: 'POST',
+      body: JSON.stringify({
+        filter: { property: 'URL', url: { equals: url } },
+        sorts: [{ timestamp: 'last_edited_time', direction: 'descending' }],
+        page_size: 1,
+      }),
+    });
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const page = data.results?.[0];
+    if (!page) return null;
+
+    const titleProp = page.properties?.Title?.title;
+    const title = titleProp?.[0]?.plain_text || 'Untitled';
+    return { pageId: page.id, pageUrl: page.url, title };
+  }
+
+  async archivePage(pageId: string): Promise<void> {
+    await this.notionFetch(`/pages/${pageId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ archived: true }),
+    });
   }
 
   async export(summary: SummaryDocument, content: ExtractedContent): Promise<ExportResult> {

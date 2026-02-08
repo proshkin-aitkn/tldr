@@ -91,7 +91,9 @@ async function handleMessage(message: Message): Promise<Message> {
     case 'CHAT_MESSAGE':
       return handleChatMessage(message.messages, message.summary, message.content);
     case 'EXPORT':
-      return handleExport(message.adapterId, message.summary, message.content);
+      return handleExport(message.adapterId, message.summary, message.content, message.replacePageId);
+    case 'CHECK_NOTION_DUPLICATE':
+      return handleCheckNotionDuplicate(message.url);
     case 'TEST_LLM_CONNECTION':
       return handleTestLLMConnection();
     case 'PROBE_VISION':
@@ -393,6 +395,7 @@ async function handleExport(
   adapterId: string,
   summary: SummaryDocument,
   content: ExtractedContent,
+  replacePageId?: string,
 ): Promise<ExportResultMessage> {
   try {
     if (adapterId !== 'notion') {
@@ -406,6 +409,11 @@ async function handleExport(
 
     const { NotionAdapter } = await import('@/lib/export/notion');
     const adapter = new NotionAdapter(settings.notion);
+
+    if (replacePageId) {
+      await adapter.archivePage(replacePageId);
+    }
+
     const result = await adapter.export(summary, content);
 
     if (result.databaseId && !settings.notion.databaseId) {
@@ -421,6 +429,33 @@ async function handleExport(
       success: false,
       error: err instanceof Error ? err.message : String(err),
     };
+  }
+}
+
+async function handleCheckNotionDuplicate(url: string): Promise<import('@/lib/messaging/types').CheckNotionDuplicateResultMessage> {
+  try {
+    const settings = await getSettings();
+    if (!settings.notion.apiKey) {
+      return { type: 'CHECK_NOTION_DUPLICATE_RESULT', success: true };
+    }
+
+    const { NotionAdapter } = await import('@/lib/export/notion');
+    const adapter = new NotionAdapter(settings.notion);
+    const dup = await adapter.findDuplicateByUrl(url);
+
+    if (dup) {
+      return {
+        type: 'CHECK_NOTION_DUPLICATE_RESULT',
+        success: true,
+        duplicatePageId: dup.pageId,
+        duplicatePageUrl: dup.pageUrl,
+        duplicateTitle: dup.title,
+      };
+    }
+    return { type: 'CHECK_NOTION_DUPLICATE_RESULT', success: true };
+  } catch {
+    // Non-blocking — fall through to normal export
+    return { type: 'CHECK_NOTION_DUPLICATE_RESULT', success: true };
   }
 }
 
