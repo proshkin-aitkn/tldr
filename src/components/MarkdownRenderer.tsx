@@ -141,7 +141,7 @@ renderer.code = function ({ text, lang }: { text: string; lang?: string }) {
   if (lang === 'mermaid') {
     return `<pre class="mermaid">${text}</pre>`;
   }
-  return origCode({ text, lang });
+  return origCode({ type: 'code', raw: text, text, lang });
 };
 
 marked.setOptions({
