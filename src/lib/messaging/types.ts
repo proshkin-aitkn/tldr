@@ -138,6 +138,8 @@ export interface NotionDatabasesResultMessage {
   error?: string;
 }
 
+// API key is passed in the message (not read from storage) because the user may
+// be testing unsaved credentials in Settings before committing them.
 export interface FetchModelsMessage {
   type: 'FETCH_MODELS';
   providerId: string;
@@ -163,6 +165,8 @@ export interface FetchImagesResultMessage {
   error?: string;
 }
 
+// Unsaved credentials passed in message — user may be testing a new provider
+// config in Settings before saving. Falls back to saved settings if omitted.
 export interface ProbeVisionMessage {
   type: 'PROBE_VISION';
   providerId?: string;
