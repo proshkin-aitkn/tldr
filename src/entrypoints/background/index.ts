@@ -219,6 +219,8 @@ async function handleExtractComments(): Promise<Message> {
 
 async function handleSummarize(content: ExtractedContent, userInstructions?: string): Promise<SummaryResultMessage> {
   try {
+    // Clear stale image cache from previous summarization
+    await cacheImages([], []);
     const settings = await getSettings();
     const llmConfig = getActiveProviderConfig(settings);
 
