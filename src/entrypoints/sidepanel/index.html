@@ -132,6 +132,38 @@
       .markdown-content pre code { background: none; padding: 0; font-size: 12px; }
       .markdown-content img { max-width: 100%; height: auto; border-radius: var(--md-sys-shape-corner-small); }
 
+      /* Mermaid diagram container */
+      .markdown-content pre.mermaid {
+        background: var(--md-sys-color-surface-container);
+        border: 1px solid var(--md-sys-color-outline-variant);
+        border-radius: var(--md-sys-shape-corner-medium);
+        box-shadow: var(--md-sys-elevation-2);
+        padding: 16px 12px;
+        margin: 12px 0;
+        overflow-x: auto;
+      }
+      .markdown-content pre.mermaid svg { display: block; margin: 0 auto; }
+      .markdown-content pre.mermaid .node rect,
+      .markdown-content pre.mermaid .node polygon,
+      .markdown-content pre.mermaid .node circle { rx: 8; ry: 8; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.10)); }
+      .markdown-content pre.mermaid .edgePath path { stroke-width: 1.5px; }
+      .markdown-content pre.mermaid .cluster rect { rx: 12; ry: 12; }
+      /* Force readable text contrast on all Mermaid text elements */
+      [data-theme="light"] .markdown-content pre.mermaid text,
+      [data-theme="light"] .markdown-content pre.mermaid .label,
+      [data-theme="light"] .markdown-content pre.mermaid .edgeLabel,
+      [data-theme="light"] .markdown-content pre.mermaid .nodeLabel,
+      [data-theme="light"] .markdown-content pre.mermaid .cluster-label,
+      [data-theme="light"] .markdown-content pre.mermaid .legend text,
+      [data-theme="light"] .markdown-content pre.mermaid .slice { color: #1a1c1e !important; fill: #1a1c1e !important; }
+      [data-theme="dark"] .markdown-content pre.mermaid text,
+      [data-theme="dark"] .markdown-content pre.mermaid .label,
+      [data-theme="dark"] .markdown-content pre.mermaid .edgeLabel,
+      [data-theme="dark"] .markdown-content pre.mermaid .nodeLabel,
+      [data-theme="dark"] .markdown-content pre.mermaid .cluster-label,
+      [data-theme="dark"] .markdown-content pre.mermaid .legend text,
+      [data-theme="dark"] .markdown-content pre.mermaid .slice { color: #e3e2e6 !important; fill: #e3e2e6 !important; }
+
       /* Scrollbar styling */
       ::-webkit-scrollbar { width: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }
