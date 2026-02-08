@@ -5,7 +5,7 @@ export default defineConfig({
   srcDir: 'src',
   manifest: {
     name: 'TL;DR',
-    description: 'Summarize any page or YouTube video with AI, refine via chat, and save to Notion',
+    description: 'Summarize any page or YouTube video with AI — image analysis, diagrams, and chat. Bring your own key, no subscription needed.',
     icons: {
       16: 'icons/icon-16.png',
       32: 'icons/icon-32.png',

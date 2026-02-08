@@ -8,7 +8,7 @@ Use this document when filling out the Chrome Web Store submission form.
 TL;DR
 
 ## Short Description (132 chars max)
-Summarize any page or YouTube video with AI, refine via chat, and save to Notion. Bring your own key — no subscription needed.
+Summarize any page or YouTube video with AI — image analysis, diagrams, and chat. Bring your own key, no subscription needed.
 
 ## Detailed Description (for store listing)
 
@@ -17,15 +17,20 @@ TL;DR gives you AI-powered summaries of any web page or YouTube video — right 
 Three steps to knowledge capture:
 
 1. Summarize — Get a structured summary of any web page or YouTube video with key takeaways, notable quotes, and tags
-2. Refine — Chat with the AI to adjust the summary, ask follow-up questions, or dig deeper into specific topics
-3. Save — Export to Notion with all metadata, tags, and source links preserved
+2. Refine — Chat with the AI to adjust the summary, ask follow-up questions, or request diagrams and custom sections
+3. Save — Export to Notion or Markdown with all metadata, tags, and source links preserved
 
 Works everywhere:
 
   - Articles and blog posts
-  - YouTube videos (transcripts + top comments)
+  - YouTube videos (transcripts + top comments + full description)
   - Google Docs
+  - SPAs and web apps (Claude, ChatGPT, etc.)
   - Any web page
+
+Image analysis: Vision-capable models automatically analyze page images — charts, infographics, screenshots — and incorporate them into the summary. The extension auto-detects each model's vision support (no configuration needed).
+
+Visual diagrams: The AI generates Mermaid flowcharts, sequence diagrams, and timelines when content describes processes or architectures. Ask for any diagram in chat and it renders inline with full light/dark theme support.
 
 Bring your own API key — no subscription, no account.
 Works with OpenAI (GPT-4o), Anthropic (Claude), Google Gemini, xAI (Grok), DeepSeek, or any self-hosted OpenAI-compatible endpoint (Ollama, vLLM, etc.)
@@ -34,7 +39,9 @@ More features:
 
   - Light, dark, and system themes
   - Configurable summary language and detail level
-  - Auto-translation of summaries into your preferred language
+  - Auto-translation of summaries and notable quotes into your preferred language
+  - Markdown export for offline use
+  - Custom extra sections via chat (cheat sheets, reference tables, etc.)
 
 Privacy-first: No data collection, no analytics, no backend server. Your API keys stay on your device. Content is sent directly to the AI provider you choose.
 
@@ -66,6 +73,9 @@ Used to persist user settings (theme preference, summary language, detail level)
 
 ### scripting
 Used to inject the content extraction script into the active tab when the user requests a summary. The script extracts the page's text content for summarization.
+
+### tabs
+Used to identify the correct target tab for content extraction when the extension's own side panel is the active context. This allows the extension to fall back to the most recent non-extension tab in the same window.
 
 ### Host permissions (<all_urls>)
 Required to extract text content from any web page. The extension reads page metadata (title, word count) when the side panel opens. The extracted content is only sent to an external AI provider when the user explicitly clicks "Summarize". Broad host permissions are necessary because the extension supports summarizing content from any website.
