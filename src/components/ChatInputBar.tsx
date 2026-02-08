@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'preact/hooks';
+import { useRef, useState, useLayoutEffect } from 'preact/hooks';
 import type { JSX } from 'preact';
 
 export type SummarizeVariant = 'primary' | 'amber' | 'disabled';
@@ -14,14 +14,26 @@ interface ChatInputBarProps {
 
 export function ChatInputBar({ value, onChange, onSubmit, isFirstSubmit, loading, summarizeVariant = 'primary' }: ChatInputBarProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const maxHeight = 3 * 20 + 16; // 3 rows * lineHeight + padding
+  const [height, setHeight] = useState('auto');
 
-  // Auto-resize textarea
-  useEffect(() => {
+  // Auto-resize textarea — height is controlled via state so Preact
+  // always renders the correct value, surviving any re-render cycle.
+  useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
+    if (!value) {
+      // When empty, use fixed single-line height — scrollHeight is unreliable
+      // on fresh side-panel open (panel width may be 0, causing placeholder
+      // text to wrap and inflating scrollHeight).
+      el.style.height = '36px';
+      setHeight('36px');
+      return;
+    }
     el.style.height = '0';
-    const maxHeight = 3 * 20 + 16; // 3 rows * lineHeight + padding
-    el.style.height = Math.min(el.scrollHeight, maxHeight) + 'px';
+    const h = Math.min(el.scrollHeight, maxHeight) + 'px';
+    el.style.height = h;
+    setHeight(h);
   }, [value]);
 
   const canSubmit = isFirstSubmit
@@ -71,6 +83,7 @@ export function ChatInputBar({ value, onChange, onSubmit, isFirstSubmit, loading
           rows={1}
           style={{
             flex: 1,
+            height,
             padding: '8px 0',
             border: 'none',
             backgroundColor: 'transparent',
