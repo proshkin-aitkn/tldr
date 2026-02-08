@@ -46,13 +46,16 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
   async sendChat(messages: ChatMessage[], options?: ChatOptions): Promise<string> {
     const url = `${this.endpoint}/v1/chat/completions`;
-    const body = {
+    const body: Record<string, unknown> = {
       model: this.config.model,
       messages: messages.map((m) => this.formatMessage(m)),
       temperature: options?.temperature ?? 0.3,
       ...this.tokenLimitParam(options?.maxTokens ?? 4096),
       stream: false,
     };
+    if (options?.jsonMode) {
+      body.response_format = { type: 'json_object' };
+    }
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 90_000);

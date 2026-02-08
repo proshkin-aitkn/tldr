@@ -19,6 +19,8 @@ export interface ChatMessage {
 export interface ChatOptions {
   temperature?: number;
   maxTokens?: number;
+  /** When true, ask the provider to enforce valid JSON output. */
+  jsonMode?: boolean;
 }
 
 export interface LLMProvider {

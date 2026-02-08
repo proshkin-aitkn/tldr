@@ -3,6 +3,7 @@ import type { ExtractedContent } from '../extractors/types';
 import type { SummaryDocument } from './types';
 import type { FetchedImage } from '../images/fetcher';
 import { chunkContent, type ChunkOptions } from './chunker';
+import { parseJsonSafe } from '../json-repair';
 import {
   getSystemPrompt,
   getSummarizationPrompt,
@@ -100,7 +101,7 @@ async function oneShotSummarize(
     { role: 'user', content: userPrompt, images },
   ];
 
-  const response = await provider.sendChat(messages, { maxTokens: 4096 });
+  const response = await provider.sendChat(messages, { maxTokens: 4096, jsonMode: true });
   return parseSummaryResponse(response, !!images?.length);
 }
 
@@ -150,7 +151,7 @@ async function rollingContextSummarize(
       { role: 'user', content: userPrompt, images: i === 0 ? images : undefined },
     ];
 
-    const response = await provider.sendChat(messages, { maxTokens: 4096 });
+    const response = await provider.sendChat(messages, { maxTokens: 4096, jsonMode: isLast });
 
     if (isLast) {
       return parseSummaryResponse(response, !!(i === 0 && images?.length));
@@ -170,38 +171,38 @@ function parseSummaryResponse(response: string, imageAnalysisEnabled = false): S
     cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
   }
 
-  try {
-    const parsed = JSON.parse(cleaned);
-    if (parsed.noContent) {
-      throw new NoContentError(parsed.reason || 'No meaningful content found on this page.');
-    }
-    // Check if LLM is requesting additional images for analysis
-    if (imageAnalysisEnabled && Array.isArray(parsed.requestedImages) && parsed.requestedImages.length > 0) {
-      throw new ImageRequestError(parsed.requestedImages);
-    }
-    const pc = parsed.prosAndCons;
-    return {
-      tldr: parsed.tldr || '',
-      keyTakeaways: Array.isArray(parsed.keyTakeaways) ? parsed.keyTakeaways : [],
-      summary: parsed.summary || '',
-      notableQuotes: Array.isArray(parsed.notableQuotes) ? parsed.notableQuotes : [],
-      conclusion: parsed.conclusion || '',
-      prosAndCons: pc ? { pros: Array.isArray(pc.pros) ? pc.pros : [], cons: Array.isArray(pc.cons) ? pc.cons : [] } : undefined,
-      commentsHighlights: Array.isArray(parsed.commentsHighlights) ? parsed.commentsHighlights : undefined,
-      extraSections: Array.isArray(parsed.extraSections)
-        ? parsed.extraSections.filter((s: unknown) => s && typeof (s as Record<string, unknown>).title === 'string' && typeof (s as Record<string, unknown>).content === 'string') as Array<{ title: string; content: string }>
-        : undefined,
-      relatedTopics: Array.isArray(parsed.relatedTopics) ? parsed.relatedTopics : [],
-      tags: Array.isArray(parsed.tags) ? parsed.tags : [],
-      sourceLanguage: parsed.sourceLanguage || undefined,
-      summaryLanguage: parsed.summaryLanguage || undefined,
-      translatedTitle: parsed.translatedTitle || undefined,
-      inferredAuthor: parsed.inferredAuthor || undefined,
-      inferredPublishDate: parsed.inferredPublishDate || undefined,
-    };
-  } catch (err) {
-    if (err instanceof NoContentError) throw err;
+  // Try standard JSON.parse first, then fall back to repair for broken LLM output
+  const parsed = parseJsonSafe(cleaned) as Record<string, unknown> | null;
+  if (!parsed || typeof parsed !== 'object') {
     // LLM returned text instead of JSON — surface it as a chat message, not a broken summary
     throw new LLMTextResponse(cleaned);
   }
+
+  if (parsed.noContent) {
+    throw new NoContentError((parsed.reason as string) || 'No meaningful content found on this page.');
+  }
+  // Check if LLM is requesting additional images for analysis
+  if (imageAnalysisEnabled && Array.isArray(parsed.requestedImages) && parsed.requestedImages.length > 0) {
+    throw new ImageRequestError(parsed.requestedImages as string[]);
+  }
+  const pc = parsed.prosAndCons as Record<string, unknown> | undefined;
+  return {
+    tldr: (parsed.tldr as string) || '',
+    keyTakeaways: Array.isArray(parsed.keyTakeaways) ? parsed.keyTakeaways : [],
+    summary: (parsed.summary as string) || '',
+    notableQuotes: Array.isArray(parsed.notableQuotes) ? parsed.notableQuotes : [],
+    conclusion: (parsed.conclusion as string) || '',
+    prosAndCons: pc ? { pros: Array.isArray(pc.pros) ? pc.pros : [], cons: Array.isArray(pc.cons) ? pc.cons : [] } : undefined,
+    commentsHighlights: Array.isArray(parsed.commentsHighlights) ? parsed.commentsHighlights : undefined,
+    extraSections: Array.isArray(parsed.extraSections)
+      ? parsed.extraSections.filter((s: unknown) => s && typeof (s as Record<string, unknown>).title === 'string' && typeof (s as Record<string, unknown>).content === 'string') as Array<{ title: string; content: string }>
+      : undefined,
+    relatedTopics: Array.isArray(parsed.relatedTopics) ? parsed.relatedTopics : [],
+    tags: Array.isArray(parsed.tags) ? parsed.tags : [],
+    sourceLanguage: (parsed.sourceLanguage as string) || undefined,
+    summaryLanguage: (parsed.summaryLanguage as string) || undefined,
+    translatedTitle: (parsed.translatedTitle as string) || undefined,
+    inferredAuthor: (parsed.inferredAuthor as string) || undefined,
+    inferredPublishDate: (parsed.inferredPublishDate as string) || undefined,
+  };
 }

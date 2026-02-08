@@ -17,13 +17,15 @@ export class GoogleProvider implements LLMProvider {
     const { systemInstruction, contents } = convertMessages(messages);
     const url = `${this.endpoint}/v1beta/models/${this.config.model}:generateContent?key=${this.config.apiKey}`;
 
-    const body: Record<string, unknown> = {
-      contents,
-      generationConfig: {
-        temperature: options?.temperature ?? 0.3,
-        maxOutputTokens: options?.maxTokens ?? 4096,
-      },
+    const generationConfig: Record<string, unknown> = {
+      temperature: options?.temperature ?? 0.3,
+      maxOutputTokens: options?.maxTokens ?? 4096,
     };
+    if (options?.jsonMode) {
+      generationConfig.responseMimeType = 'application/json';
+    }
+
+    const body: Record<string, unknown> = { contents, generationConfig };
     if (systemInstruction) {
       body.systemInstruction = systemInstruction;
     }
@@ -60,13 +62,15 @@ export class GoogleProvider implements LLMProvider {
     const { systemInstruction, contents } = convertMessages(messages);
     const url = `${this.endpoint}/v1beta/models/${this.config.model}:streamGenerateContent?alt=sse&key=${this.config.apiKey}`;
 
-    const body: Record<string, unknown> = {
-      contents,
-      generationConfig: {
-        temperature: options?.temperature ?? 0.3,
-        maxOutputTokens: options?.maxTokens ?? 4096,
-      },
+    const streamGenConfig: Record<string, unknown> = {
+      temperature: options?.temperature ?? 0.3,
+      maxOutputTokens: options?.maxTokens ?? 4096,
     };
+    if (options?.jsonMode) {
+      streamGenConfig.responseMimeType = 'application/json';
+    }
+
+    const body: Record<string, unknown> = { contents, generationConfig: streamGenConfig };
     if (systemInstruction) {
       body.systemInstruction = systemInstruction;
     }
