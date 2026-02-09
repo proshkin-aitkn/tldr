@@ -40,7 +40,7 @@ interface DisplayMessage {
 
 
 export function App() {
-  const { mode: themeMode, setMode: setThemeMode } = useTheme();
+  const { mode: themeMode, resolved: resolvedTheme, setMode: setThemeMode } = useTheme();
 
   // CSS zoom (Ctrl+Plus / Ctrl+Minus / Ctrl+0)
   useEffect(() => {
@@ -395,6 +395,7 @@ export function App() {
         messages: allMessages,
         summary: summary || emptySummary,
         content,
+        theme: resolvedTheme,
       }) as ChatResponseMessage;
 
       if (!response.success || !response.message) {

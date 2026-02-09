@@ -90,7 +90,7 @@ async function handleMessage(message: Message): Promise<Message> {
     case 'SUMMARIZE':
       return handleSummarize(message.content, message.userInstructions);
     case 'CHAT_MESSAGE':
-      return handleChatMessage(message.messages, message.summary, message.content);
+      return handleChatMessage(message.messages, message.summary, message.content, message.theme);
     case 'EXPORT':
       return handleExport(message.adapterId, message.summary, message.content, message.replacePageId);
     case 'CHECK_NOTION_DUPLICATE':
@@ -355,6 +355,7 @@ async function handleChatMessage(
   messages: ChatMessage[],
   summary: SummaryDocument,
   content: ExtractedContent,
+  theme?: 'light' | 'dark',
 ): Promise<ChatResponseMessage> {
   try {
     const settings = await getSettings();
@@ -393,7 +394,8 @@ Response format rules:
 - IMPORTANT: Always respond with valid JSON. Do not include anything outside the JSON object — no markdown fences, no extra text.
 - When updating the summary, always return the COMPLETE JSON object (all fields), not just the changed parts.
 - To add custom sections (cheat sheets, tables, extras the user requests), use the "extraSections" array field: [{"title": "Section Name", "content": "markdown content"}]. Content supports full markdown and mermaid diagrams (flowchart, sequence, timeline, etc.).
-- MERMAID SYNTAX (MANDATORY): Node IDs must be ONLY letters or digits (A, B, C1, node1) — NO colons, dashes, dots, spaces, or any special characters in IDs. ALL display text goes inside brackets: A["Label with special:chars"], B{"Decision?"}. Edge labels use |label| syntax. Always use \`flowchart TD\` or \`flowchart LR\`, never \`graph\`. Example: \`flowchart TD\\n  A["Start"] --> B{"Check?"}\\n  B -->|Yes| C["Done"]\``;
+- MERMAID SYNTAX (MANDATORY): Node IDs must be ONLY letters or digits (A, B, C1, node1) — NO colons, dashes, dots, spaces, or any special characters in IDs. ALL display text goes inside brackets: A["Label with special:chars"], B{"Decision?"}. Edge labels use |label| syntax. Always use \`flowchart TD\` or \`flowchart LR\`, never \`graph\`. Example: \`flowchart TD\\n  A["Start"] --> B{"Check?"}\\n  B -->|Yes| C["Done"]\`
+- UI THEME: The user's interface is currently in **${theme || 'dark'} mode**. When generating diagrams, tables, or any visual elements with colors, choose colors that are readable and look good on a ${theme || 'dark'} background.`;
 
     if (hasImages) {
       systemPrompt += `\n\nYou have multimodal capabilities — images from the page are attached to this conversation. You can analyze and reference them when answering questions or updating the summary.`;

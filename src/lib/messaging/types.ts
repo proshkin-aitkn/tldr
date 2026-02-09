@@ -67,6 +67,7 @@ export interface ChatMessageRequest {
   messages: ChatMessage[];
   summary: SummaryDocument;
   content: ExtractedContent;
+  theme?: 'light' | 'dark';
 }
 
 export interface ChatResponseMessage {
