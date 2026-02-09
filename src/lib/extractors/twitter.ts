@@ -93,8 +93,8 @@ export const twitterExtractor: ContentExtractor = {
 
     const content = lines.join('\n');
     const wordCount = content.split(/\s+/).filter(Boolean).length;
-    const title = mainTweet
-      ? `${mainTweet.displayName} on X: "${mainTweet.text.slice(0, 80)}${mainTweet.text.length > 80 ? '...' : ''}"`
+    const title = mainTweet?.text
+      ? mainTweet.text.slice(0, 120).trim() + (mainTweet.text.length > 120 ? '...' : '')
       : '';
 
     // Extract images from tweets
@@ -199,59 +199,13 @@ function parseArticle(article: Element): ParsedTweet | null {
 }
 
 function extractTweetText(article: Element): string {
-  // The tweet text appears as StaticText directly inside the article,
-  // not inside buttons, links, or other interactive elements.
-  // We need to be selective: skip navigation elements, buttons, timestamps, etc.
-
-  const parts: string[] = [];
-  const walker = article.ownerDocument!.createTreeWalker(article, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      const parent = node.parentElement;
-      if (!parent) return NodeFilter.FILTER_REJECT;
-
-      // Skip buttons (Reply, Repost, Like, etc.)
-      if (parent.closest('button')) return NodeFilter.FILTER_REJECT;
-
-      // Skip links that are metadata (timestamps, analytics, profile links)
-      const link = parent.closest('a');
-      if (link) {
-        const href = link.getAttribute('href') || '';
-        // Keep links that are mentions (@user) or URLs in the tweet text
-        if (href.includes('/analytics') || href.includes('/photo/') || href.includes('/video/')) {
-          return NodeFilter.FILTER_REJECT;
-        }
-        // Skip timestamp links (short date text)
-        const linkText = link.textContent?.trim() || '';
-        if (/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d+$/.test(linkText)) {
-          return NodeFilter.FILTER_REJECT;
-        }
-        // Skip profile name/handle links (these are at the top of each article)
-        if (/^\/\w+$/.test(href) && !href.startsWith('/i/')) {
-          return NodeFilter.FILTER_REJECT;
-        }
-      }
-
-      // Skip verification badges and other UI elements
-      const text = node.textContent?.trim();
-      if (!text) return NodeFilter.FILTER_REJECT;
-      if (text === 'Verified account' || text === 'reposted') return NodeFilter.FILTER_REJECT;
-      // Skip "Click to Follow/Subscribe" accessibility text
-      if (/^Click to (Follow|Subscribe)/i.test(text)) return NodeFilter.FILTER_REJECT;
-
-      // Skip very short generic UI text
-      if (text.length < 2 && !/[A-Za-z]/.test(text)) return NodeFilter.FILTER_REJECT;
-
-      return NodeFilter.FILTER_ACCEPT;
-    },
-  });
-
-  let node: Node | null;
-  while ((node = walker.nextNode())) {
-    const text = node.textContent?.trim();
-    if (text) parts.push(text);
+  // Use X's data-testid="tweetText" container — reliably contains only the tweet text
+  // with @mentions and URLs preserved, excluding all UI chrome.
+  const tweetTextEl = article.querySelector('[data-testid="tweetText"]');
+  if (tweetTextEl) {
+    return (tweetTextEl.textContent || '').replace(/\s+/g, ' ').trim();
   }
-
-  return parts.join(' ').replace(/\s+/g, ' ').trim();
+  return '';
 }
 
 function parseMetricCount(text: string): number | undefined {
