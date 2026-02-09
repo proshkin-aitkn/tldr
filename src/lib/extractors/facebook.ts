@@ -53,6 +53,7 @@ export const facebookExtractor: ContentExtractor = {
     const author = extractAuthor(doc, scope);
     const postText = extractPostText(doc, scope);
     const images = extractImages(scope);
+    const postMedia = extractPostMediaUrls(scope);
     const { reactions, commentCount, shareCount } = extractMetadata(scope);
 
     let content = '';
@@ -79,7 +80,8 @@ export const facebookExtractor: ContentExtractor = {
       content,
       wordCount,
       estimatedReadingTime: Math.ceil(wordCount / 200),
-      thumbnailUrl: images[0] || undefined,
+      thumbnailUrl: postMedia[0] || undefined,
+      thumbnailUrls: postMedia.length > 1 ? postMedia.slice(0, 4) : undefined,
       images: images.length > 0 ? images : undefined,
     };
   },
@@ -247,6 +249,39 @@ function extractImages(scope: Element | Document): string[] {
   }
   // Deduplicate
   return [...new Set(images)];
+}
+
+/** Extract media URLs (images + video posters) from the main post only, excluding comments */
+function extractPostMediaUrls(scope: Element | Document): string[] {
+  const urls: string[] = [];
+
+  // Images not inside comment articles
+  const imgs = scope.querySelectorAll('img');
+  for (const img of imgs) {
+    if (isInsideComment(img)) continue;
+    const src = img.src || img.getAttribute('src') || '';
+    if (!src.includes('fbcdn.net') || src.includes('emoji') || src.includes('rsrc.php')) continue;
+    const width = img.naturalWidth || img.width || 0;
+    if (width > 0 && width <= 100) continue;
+    urls.push(src);
+  }
+
+  // Video posters not inside comment articles
+  const videos = scope.querySelectorAll('video');
+  for (const video of videos) {
+    if (isInsideComment(video)) continue;
+    const poster = video.poster || '';
+    if (poster && poster.includes('fbcdn.net')) urls.push(poster);
+  }
+
+  return [...new Set(urls)];
+}
+
+function isInsideComment(el: Element): boolean {
+  const article = el.closest('[role="article"]');
+  if (!article) return false;
+  const label = article.getAttribute('aria-label') || '';
+  return label.startsWith('Comment by') || label.startsWith('Reply by');
 }
 
 function extractMetadata(scope: Element | Document): {

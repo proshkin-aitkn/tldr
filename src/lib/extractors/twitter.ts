@@ -99,10 +99,16 @@ export const twitterExtractor: ContentExtractor = {
 
     // Extract images from tweets
     const richImages = extractTweetImages(doc);
+
+    // Get only the main tweet's own attached media grid (excluding quoted tweet media)
+    const mainArticle = mainTweet ? findMainArticle(articles, mainTweet.handle) : undefined;
+    const thumbnailUrls = mainArticle ? extractMediaGridUrls(mainArticle).slice(0, 4) : [];
+
     // X/Twitter og:image is always a generic logo — use actual tweet images instead
     const ogImage = doc.querySelector('meta[property="og:image"]')?.getAttribute('content');
     const hasRealOgImage = ogImage && !ogImage.includes('abs.twimg.com/rweb/');
     const thumbnailUrl =
+      (thumbnailUrls.length > 0 ? thumbnailUrls[0] : undefined) ||
       (richImages.length > 0 ? richImages[0].url : undefined) ||
       (hasRealOgImage ? ogImage : undefined);
 
@@ -116,6 +122,7 @@ export const twitterExtractor: ContentExtractor = {
       wordCount,
       estimatedReadingTime: Math.ceil(wordCount / 200),
       thumbnailUrl,
+      thumbnailUrls: thumbnailUrls.length > 1 ? thumbnailUrls : undefined,
       richImages: richImages.length > 0 ? richImages : undefined,
     };
   },
@@ -227,32 +234,115 @@ function formatCount(n: number): string {
   return String(n);
 }
 
+/** Find the article element that corresponds to the main tweet by matching the author handle */
+function findMainArticle(articles: NodeListOf<Element>, handle: string): Element | undefined {
+  for (const article of articles) {
+    const links = article.querySelectorAll('a');
+    for (const link of links) {
+      const text = link.textContent?.trim() || '';
+      if (text === `@${handle}`) return article;
+    }
+  }
+  // Fallback: first article
+  return articles.length > 0 ? articles[0] : undefined;
+}
+
+/** Extract only the main tweet's own media grid URLs (tweetPhoto containers, excluding quoted tweets) */
+function extractMediaGridUrls(article: Element): string[] {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+
+  // Images inside tweetPhoto containers (the actual media grid)
+  const tweetPhotos = article.querySelectorAll('[data-testid="tweetPhoto"] img');
+  for (const img of tweetPhotos) {
+    if (isInsideQuotedTweet(img, article)) continue;
+    const src = (img as HTMLImageElement).src || '';
+    if (!src.includes('pbs.twimg.com')) continue;
+    if (seen.has(src)) continue;
+    seen.add(src);
+    urls.push(src);
+  }
+
+  // Video posters (not inside quoted tweets)
+  const videos = article.querySelectorAll('video');
+  for (const video of videos) {
+    if (isInsideQuotedTweet(video, article)) continue;
+    const poster = video.poster || '';
+    if (!poster.includes('pbs.twimg.com') || seen.has(poster)) continue;
+    seen.add(poster);
+    urls.push(poster);
+  }
+
+  return urls;
+}
+
+/** Check if an element is nested inside a quoted tweet within the article */
+function isInsideQuotedTweet(el: Element, article: Element): boolean {
+  let parent = el.parentElement;
+  while (parent && parent !== article) {
+    // Quoted tweets are wrapped in a role="link" container that has its own tweetText
+    if (parent.getAttribute('role') === 'link' && parent.querySelector('[data-testid="tweetText"]')) {
+      return true;
+    }
+    parent = parent.parentElement;
+  }
+  return false;
+}
+
+/** Extract images and video posters from a single article element (all media, for richImages) */
+function extractArticleMedia(article: Element): ExtractedImage[] {
+  const results: ExtractedImage[] = [];
+  const seen = new Set<string>();
+
+  const imgs = article.querySelectorAll('img');
+  for (const img of imgs) {
+    const src = img.src || '';
+    if (!src.includes('pbs.twimg.com')) continue;
+    if (src.includes('profile_images') || src.includes('emoji')) continue;
+    if (seen.has(src)) continue;
+    seen.add(src);
+
+    const alt = img.alt || '';
+    const width = img.naturalWidth || img.width || 0;
+    const height = img.naturalHeight || img.height || 0;
+
+    results.push({
+      url: src,
+      alt,
+      tier: alt.length > 10 ? 'inline' : 'contextual',
+      width: width || undefined,
+      height: height || undefined,
+    });
+  }
+
+  const videos = article.querySelectorAll('video');
+  for (const video of videos) {
+    const poster = video.poster || '';
+    if (!poster.includes('pbs.twimg.com')) continue;
+    if (seen.has(poster)) continue;
+    seen.add(poster);
+
+    results.push({
+      url: poster,
+      alt: 'Video thumbnail',
+      tier: 'inline',
+    });
+  }
+
+  return results;
+}
+
 function extractTweetImages(doc: Document): ExtractedImage[] {
   const results: ExtractedImage[] = [];
   const seen = new Set<string>();
 
   const articles = doc.querySelectorAll('article');
   for (const article of articles) {
-    const imgs = article.querySelectorAll('img');
-    for (const img of imgs) {
-      const src = img.src || '';
-      if (!src.includes('pbs.twimg.com')) continue;
-      // Skip profile pictures and emoji
-      if (src.includes('profile_images') || src.includes('emoji')) continue;
-      if (seen.has(src)) continue;
-      seen.add(src);
-
-      const alt = img.alt || '';
-      const width = img.naturalWidth || img.width || 0;
-      const height = img.naturalHeight || img.height || 0;
-
-      results.push({
-        url: src,
-        alt,
-        tier: alt.length > 10 ? 'inline' : 'contextual',
-        width: width || undefined,
-        height: height || undefined,
-      });
+    for (const img of extractArticleMedia(article)) {
+      if (!seen.has(img.url)) {
+        seen.add(img.url);
+        results.push(img);
+      }
     }
   }
 

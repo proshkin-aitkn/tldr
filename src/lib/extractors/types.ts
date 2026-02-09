@@ -16,6 +16,7 @@ export interface ExtractedContent {
   duration?: string;
   viewCount?: string;
   thumbnailUrl?: string;
+  thumbnailUrls?: string[]; // multiple thumbnails for collage display (e.g. X multi-image posts)
   description?: string;
 
   // Reddit-specific

@@ -24,6 +24,9 @@ Works everywhere:
 
   - Articles and blog posts
   - YouTube videos (transcripts + top comments + full description)
+  - Reddit threads (post + comment tree with scores)
+  - X/Twitter threads (full conversation with engagement data)
+  - Facebook posts (text, images, reactions, and comments)
   - Google Docs
   - SPAs and web apps (Claude, ChatGPT, etc.)
   - Any web page
