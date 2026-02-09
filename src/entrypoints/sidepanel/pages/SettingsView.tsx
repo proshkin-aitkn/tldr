@@ -105,12 +105,13 @@ export function SettingsView({ settings, onSave, onTestLLM, onTestNotion, onFetc
     }
     lastSavedJson.current = JSON.stringify(settings);
 
-    // Only sync onboarding on the initial load (when real settings replace defaults)
-    if (!initialSyncDone.current) {
+    // Always respect persisted onboardingCompleted flag
+    if (settings.onboardingCompleted) {
+      setOnboardingStep(null);
+    } else if (!initialSyncDone.current) {
       initialSyncDone.current = true;
-      if (settings.onboardingCompleted) {
-        setOnboardingStep(null);
-      } else if (settings.providerConfigs[settings.activeProviderId]?.apiKey) {
+      // Existing user: has an API key → skip onboarding
+      if (settings.providerConfigs[settings.activeProviderId]?.apiKey) {
         setOnboardingStep(null);
       }
     }
@@ -545,6 +546,18 @@ export function SettingsView({ settings, onSave, onTestLLM, onTestNotion, onFetc
           style={inputStyle}
         />
         <StepHint step="apiKey" currentStep={onboardingStep} />
+
+        {/* Continue button during onboarding */}
+        {isOnboarding && onboardingStep === 'apiKey' && currentConfig.apiKey && (
+          <Button
+            onClick={() => { doFetchModels(); advanceStep('apiKey'); }}
+            size="sm"
+            variant="secondary"
+            style={{ marginTop: '8px' }}
+          >
+            Continue
+          </Button>
+        )}
       </div>
 
       {/* === Model Section === */}
@@ -624,6 +637,18 @@ export function SettingsView({ settings, onSave, onTestLLM, onTestNotion, onFetc
           style={inputStyle}
         />
         <StepHint step="model" currentStep={onboardingStep} />
+
+        {/* Continue button during onboarding */}
+        {isOnboarding && onboardingStep === 'model' && currentConfig.model && (
+          <Button
+            onClick={() => advanceStep('model')}
+            size="sm"
+            variant="secondary"
+            style={{ marginTop: '8px' }}
+          >
+            Continue
+          </Button>
+        )}
       </div>
 
       {/* === Image Analysis + Test Connection Section === */}
