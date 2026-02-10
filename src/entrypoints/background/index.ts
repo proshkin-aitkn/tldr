@@ -3,6 +3,7 @@ import { getActiveProviderConfig } from '@/lib/storage/types';
 import { createProvider, getProviderDefinition } from '@/lib/llm/registry';
 import { fetchModels } from '@/lib/llm/models';
 import { summarize, ImageRequestError } from '@/lib/summarizer/summarizer';
+import { getSystemPrompt } from '@/lib/summarizer/prompts';
 import { fetchImages } from '@/lib/images/fetcher';
 import { probeVision } from '@/lib/llm/vision-probe';
 import type { FetchedImage } from '@/lib/images/fetcher';
@@ -122,6 +123,10 @@ async function handleMessage(message: Message): Promise<Message> {
       return handleFetchNotionDatabases();
     case 'FETCH_MODELS':
       return handleFetchModels(message.providerId, message.apiKey, message.endpoint);
+    case 'OPEN_TAB':
+      return handleOpenTab((message as import('@/lib/messaging/types').OpenTabMessage).url);
+    case 'CLOSE_ONBOARDING_TABS':
+      return handleCloseOnboardingTabs();
     default:
       return { type: (message as Message).type, success: false, error: 'Unknown message type' } as Message;
   }
@@ -415,13 +420,37 @@ async function handleChatMessage(
       : content.type === 'twitter' ? 'X thread'
       : 'web page';
 
-    let systemPrompt = `You are a helpful assistant that helps refine and discuss content summaries.
-The user has a summary of a ${contentLabel}.
+    // Truncate original content based on context window (60% of context, ~4 chars/token)
+    const maxContentChars = llmConfig.contextWindow * 0.6 * 4;
+    const originalContent = content.content
+      ? (content.content.length > maxContentChars
+        ? content.content.slice(0, maxContentChars) + '\n\n[...content truncated...]'
+        : content.content)
+      : '';
+
+    // --- SYSTEM MSG 1: Static prefix (cached across turns) ---
+    const summarizationPrompt = getSystemPrompt(
+      settings.summaryDetailLevel,
+      settings.summaryLanguage,
+      settings.summaryLanguageExcept,
+      hasImages,
+      content.wordCount,
+    );
+
+    const staticSystem = `${summarizationPrompt}
+
+---
+
+You are also helping refine and discuss the summary of a ${contentLabel}.
+
+IMPORTANT: When answering questions about the content, always use the original page content below as your primary source of truth — it contains the full detail. Only refer to the current summary JSON when the user specifically asks about the summary or requests changes to it.
 
 Source metadata:
 ${metaLines.join('\n')}
+${originalContent ? `\nOriginal page content:\n${originalContent}` : ''}`;
 
-Current summary (JSON):
+    // --- SYSTEM MSG 2: Dynamic per-turn context ---
+    let dynamicSystem = `Current summary (JSON):
 ${JSON.stringify(summary, null, 2)}
 
 Response format rules:
@@ -432,20 +461,27 @@ Response format rules:
 - When updating the summary, always return the COMPLETE JSON object (all fields), not just the changed parts.
 - To add custom sections (cheat sheets, tables, extras the user requests), use the "extraSections" array field: [{"title": "Section Name", "content": "markdown content"}]. Content supports full markdown and mermaid diagrams (flowchart, sequence, timeline, etc.).
 - MERMAID SYNTAX (MANDATORY): Node IDs must be ONLY letters or digits (A, B, C1, node1) — NO colons, dashes, dots, spaces, or any special characters in IDs. ALL display text goes inside brackets: A["Label with special:chars"], B{"Decision?"}. Edge labels use |label| syntax. Always use \`flowchart TD\` or \`flowchart LR\`, never \`graph\`. Example: \`flowchart TD\\n  A["Start"] --> B{"Check?"}\\n  B -->|Yes| C["Done"]\`
-- UI THEME: The user's interface is currently in **${theme || 'dark'} mode**. When generating diagrams, tables, or any visual elements with colors, choose colors that are readable and look good on a ${theme || 'dark'} background.`;
+- UI THEME: The user's interface is currently in **${theme || 'dark'} mode**. When generating diagrams, tables, or any visual elements with colors, choose colors that are readable and look good on a ${theme || 'dark'} background.
+
+Formatting reminder (when updating the summary):
+- "summary" MUST use ### subheadings to break into 2-4 sections when longer than one paragraph; keep paragraphs to 3-4 sentences max.
+- Each "keyTakeaways" item must start with "**Bold label** — " then the explanation.
+- Bold key terms, names, and statistics throughout all text fields.
+- The summary must be SHORTER than the original content. Never pad or repeat information across fields.`;
 
     if (hasImages) {
-      systemPrompt += `\n\nYou have multimodal capabilities — images from the page are attached to this conversation. You can analyze and reference them when answering questions or updating the summary.`;
+      dynamicSystem += `\n\nYou have multimodal capabilities — images from the page are attached to this conversation. You can analyze and reference them when answering questions or updating the summary.`;
       if (cachedImageUrls.length > 0) {
         const urlLines = cachedImageUrls.map((img, i) =>
           `${i + 1}. ${img.url}${img.alt ? ` — "${img.alt}"` : ''}`,
         );
-        systemPrompt += `\n\nOriginal image URLs (use for ![alt](url) embeds in summary/responses):\n${urlLines.join('\n')}`;
+        dynamicSystem += `\n\nOriginal image URLs (use for ![alt](url) embeds in summary/responses):\n${urlLines.join('\n')}`;
       }
     }
 
     const chatMessages: ChatMessage[] = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: staticSystem, cacheBreakpoint: true },
+      { role: 'system', content: dynamicSystem },
       ...messages,
     ];
 
@@ -687,6 +723,34 @@ async function handleSaveSettings(partial: object): Promise<SaveSettingsResultMe
   }
 }
 
+// Required Notion database properties for compatibility check
+const REQUIRED_NOTION_PROPERTIES: Record<string, string> = {
+  Title: 'title',
+  URL: 'url',
+  Author: 'rich_text',
+  'Source Type': 'select',
+  'Publish Date': 'date',
+  'Captured At': 'date',
+  Duration: 'rich_text',
+  Language: 'select',
+  Tags: 'multi_select',
+  'Reading Time': 'number',
+  'LLM Provider': 'rich_text',
+  'LLM Model': 'rich_text',
+  Status: 'select',
+};
+
+function isCompatibleNotionDatabase(db: Record<string, unknown>): boolean {
+  const properties = db.properties as Record<string, { type?: string }> | undefined;
+  if (!properties) return false;
+
+  for (const [name, expectedType] of Object.entries(REQUIRED_NOTION_PROPERTIES)) {
+    const prop = properties[name];
+    if (!prop || prop.type !== expectedType) return false;
+  }
+  return true;
+}
+
 async function handleFetchNotionDatabases(): Promise<NotionDatabasesResultMessage> {
   try {
     const settings = await getSettings();
@@ -708,10 +772,12 @@ async function handleFetchNotionDatabases(): Promise<NotionDatabasesResultMessag
     if (!response.ok) throw new Error('Failed to fetch databases');
 
     const data = await response.json();
-    const databases = data.results.map((db: Record<string, unknown>) => ({
-      id: db.id,
-      title: ((db.title as Array<{ plain_text: string }>)?.[0]?.plain_text) || 'Untitled',
-    }));
+    const databases = data.results
+      .filter((db: Record<string, unknown>) => isCompatibleNotionDatabase(db))
+      .map((db: Record<string, unknown>) => ({
+        id: db.id,
+        title: ((db.title as Array<{ plain_text: string }>)?.[0]?.plain_text) || 'Untitled',
+      }));
 
     return { type: 'NOTION_DATABASES_RESULT', success: true, databases };
   } catch (err) {
@@ -720,6 +786,76 @@ async function handleFetchNotionDatabases(): Promise<NotionDatabasesResultMessag
       success: false,
       error: err instanceof Error ? err.message : String(err),
     };
+  }
+}
+
+// Onboarding tabs — persisted to chrome.storage.session so they survive SW restarts
+type TrackedTab = { tabId: number; originalDomain: string };
+const _sessionStorage = () => chromeStorage().session;
+
+async function getOnboardingTabs(): Promise<TrackedTab[]> {
+  const result = await _sessionStorage().get('_onboardingTabs');
+  return (result._onboardingTabs as TrackedTab[]) || [];
+}
+
+async function setOnboardingTabs(tabs: TrackedTab[]): Promise<void> {
+  await _sessionStorage().set({ _onboardingTabs: tabs });
+}
+
+/** Extract root domain (last 2 parts) — e.g. "accounts.x.ai" → "x.ai", "platform.openai.com" → "openai.com" */
+function rootDomain(hostname: string): string {
+  const parts = hostname.split('.');
+  return parts.length >= 2 ? parts.slice(-2).join('.') : hostname;
+}
+
+async function handleOpenTab(url: string): Promise<{ type: 'OPEN_TAB_RESULT'; success: boolean; tabId?: number }> {
+  try {
+    const chromeTabs = (globalThis as unknown as { chrome: { tabs: typeof chrome.tabs } }).chrome.tabs;
+    const tab = await chromeTabs.create({ url });
+    if (tab.id != null) {
+      const domain = new URL(url).hostname;
+      const tabs = await getOnboardingTabs();
+      tabs.push({ tabId: tab.id, originalDomain: domain });
+      await setOnboardingTabs(tabs);
+      console.log('[onboarding] tracked tab', tab.id, domain, '→ total:', tabs.length);
+    }
+    return { type: 'OPEN_TAB_RESULT', success: true, tabId: tab.id };
+  } catch {
+    return { type: 'OPEN_TAB_RESULT', success: false };
+  }
+}
+
+async function handleCloseOnboardingTabs(): Promise<{ type: 'CLOSE_ONBOARDING_TABS_RESULT'; success: boolean; debug?: string }> {
+  try {
+    const chromeTabs = (globalThis as unknown as { chrome: { tabs: typeof chrome.tabs } }).chrome.tabs;
+    const tabs = await getOnboardingTabs();
+    await setOnboardingTabs([]); // drain
+    const debugLines: string[] = [`tracked: ${tabs.length} tabs`];
+    for (const { tabId, originalDomain } of tabs) {
+      try {
+        const tab = await chromeTabs.get(tabId);
+        if (tab?.url) {
+          const currentRoot = rootDomain(new URL(tab.url).hostname);
+          const originalRoot = rootDomain(originalDomain);
+          const match = currentRoot === originalRoot;
+          debugLines.push(`tab ${tabId}: orig=${originalDomain}(${originalRoot}) cur=${tab.url}(${currentRoot}) match=${match}`);
+          if (match) {
+            await chromeTabs.remove(tabId);
+          }
+        } else {
+          debugLines.push(`tab ${tabId}: no url (${tab?.status})`);
+        }
+      } catch (err) {
+        debugLines.push(`tab ${tabId}: gone (${err})`);
+      }
+    }
+    const debug = debugLines.join('\n');
+    console.log('[onboarding] close tabs:\n' + debug);
+    return { type: 'CLOSE_ONBOARDING_TABS_RESULT', success: true, debug };
+  } catch (err) {
+    const debug = `error: ${err}`;
+    console.log('[onboarding] close tabs error:', err);
+    return { type: 'CLOSE_ONBOARDING_TABS_RESULT', success: true, debug };
   }
 }
 

@@ -32,7 +32,11 @@ export type MessageType =
   | 'CHECK_NOTION_DUPLICATE'
   | 'CHECK_NOTION_DUPLICATE_RESULT'
   | 'SEEK_VIDEO'
-  | 'CANCEL_SUMMARIZE';
+  | 'CANCEL_SUMMARIZE'
+  | 'OPEN_TAB'
+  | 'OPEN_TAB_RESULT'
+  | 'CLOSE_ONBOARDING_TABS'
+  | 'CLOSE_ONBOARDING_TABS_RESULT';
 
 export interface ExtractContentMessage {
   type: 'EXTRACT_CONTENT';
@@ -216,6 +220,27 @@ export interface CancelSummarizeMessage {
   tabId: number;
 }
 
+export interface OpenTabMessage {
+  type: 'OPEN_TAB';
+  url: string;
+}
+
+export interface OpenTabResultMessage {
+  type: 'OPEN_TAB_RESULT';
+  success: boolean;
+  tabId?: number;
+}
+
+export interface CloseOnboardingTabsMessage {
+  type: 'CLOSE_ONBOARDING_TABS';
+}
+
+export interface CloseOnboardingTabsResultMessage {
+  type: 'CLOSE_ONBOARDING_TABS_RESULT';
+  success: boolean;
+  debug?: string;
+}
+
 export type Message =
   | ExtractContentMessage
   | ExtractResultMessage
@@ -245,4 +270,8 @@ export type Message =
   | CheckNotionDuplicateMessage
   | CheckNotionDuplicateResultMessage
   | SeekVideoMessage
-  | CancelSummarizeMessage;
+  | CancelSummarizeMessage
+  | OpenTabMessage
+  | OpenTabResultMessage
+  | CloseOnboardingTabsMessage
+  | CloseOnboardingTabsResultMessage;
