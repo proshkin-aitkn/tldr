@@ -323,102 +323,64 @@ export class NotionAdapter implements ExportAdapter {
   }
 
   private buildContentBlocks(summary: SummaryDocument, content: ExtractedContent, thumbnailRef?: { type: string; [key: string]: unknown } | null): unknown[] {
-    const blocks: unknown[] = [];
+    // Build the entire page as markdown, then parse uniformly
+    const sections: string[] = [];
 
-    // Thumbnail image block
-    if (thumbnailRef) {
-      blocks.push({
-        object: 'block',
-        type: 'image',
-        image: thumbnailRef,
-      });
-    }
+    sections.push('## TL;DR\n\n' + summary.tldr);
 
-    // TL;DR section
-    blocks.push(
-      heading2('TL;DR'),
-      paragraph(summary.tldr),
-      divider(),
-    );
-
-    // Key Takeaways
     if (summary.keyTakeaways.length > 0) {
-      blocks.push(heading2('Key Takeaways'));
-      for (const point of summary.keyTakeaways) {
-        blocks.push(bulletItem(point));
-      }
-      blocks.push(divider());
+      sections.push('## Key Takeaways\n\n' + summary.keyTakeaways.map((t, i) => `${i + 1}. ${t}`).join('\n'));
     }
 
-    // Summary
-    blocks.push(heading2('Summary'));
-    const summaryBlocks = markdownToNotionBlocks(summary.summary);
-    blocks.push(...summaryBlocks);
-    blocks.push(divider());
+    sections.push('## Summary\n\n' + summary.summary);
 
-    // Notable Quotes
     if (summary.notableQuotes.length > 0) {
-      blocks.push(heading2('Notable Quotes'));
-      for (const quote of summary.notableQuotes) {
-        blocks.push({
-          object: 'block',
-          type: 'quote',
-          quote: { rich_text: [{ type: 'text', text: { content: `"${quote}"` } }] },
-        });
-      }
-      blocks.push(divider());
+      sections.push('## Notable Quotes\n\n' + summary.notableQuotes.map((q) => `> "${q}"`).join('\n\n'));
     }
 
-    // Pros and Cons
     if (summary.prosAndCons) {
-      blocks.push(heading2('Pros & Cons'));
-      blocks.push(heading3('Pros'));
-      for (const pro of summary.prosAndCons.pros) {
-        blocks.push(bulletItem(pro));
-      }
-      blocks.push(heading3('Cons'));
-      for (const con of summary.prosAndCons.cons) {
-        blocks.push(bulletItem(con));
-      }
-      blocks.push(divider());
+      let pc = '## Pros & Cons\n\n### Pros\n\n';
+      pc += summary.prosAndCons.pros.map((p) => `- ${p}`).join('\n');
+      pc += '\n\n### Cons\n\n';
+      pc += summary.prosAndCons.cons.map((c) => `- ${c}`).join('\n');
+      sections.push(pc);
     }
 
-    // Comments Highlights
+    if (summary.factCheck) {
+      sections.push('## Fact Check\n\n' + summary.factCheck);
+    }
+
     if (summary.commentsHighlights && summary.commentsHighlights.length > 0) {
-      blocks.push(heading2('Comment Highlights'));
-      for (const highlight of summary.commentsHighlights) {
-        blocks.push(bulletItem(highlight));
-      }
-      blocks.push(divider());
+      sections.push('## Comment Highlights\n\n' + summary.commentsHighlights.map((h) => `- ${h}`).join('\n'));
     }
 
-    // Conclusion
     if (summary.conclusion) {
-      blocks.push(heading2('Conclusion'));
-      blocks.push(paragraph(summary.conclusion));
-      blocks.push(divider());
+      sections.push('## Conclusion\n\n' + summary.conclusion);
     }
 
-    // Extra sections (chat-added)
     if (summary.extraSections && summary.extraSections.length > 0) {
       for (const section of summary.extraSections) {
-        blocks.push(heading2(section.title));
-        blocks.push(...markdownToNotionBlocks(section.content));
-        blocks.push(divider());
+        sections.push(`## ${section.title}\n\n${section.content}`);
       }
     }
 
-    // Related Topics
     if (summary.relatedTopics.length > 0) {
-      blocks.push(heading2('Related Topics'));
-      for (const topic of summary.relatedTopics) {
-        blocks.push(bulletItem(topic));
-      }
+      sections.push('## Related Topics\n\n' + summary.relatedTopics.map((t) => `- ${t}`).join('\n'));
     }
+
+    // Parse all content through one markdown pipeline
+    const blocks: unknown[] = [];
+
+    if (thumbnailRef) {
+      blocks.push({ object: 'block', type: 'image', image: thumbnailRef });
+    }
+
+    const contentBlocks = markdownToNotionBlocks(sections.join('\n\n---\n\n'));
+    blocks.push(...contentBlocks);
 
     // "Created with" attribution
     blocks.push(
-      divider(),
+      { object: 'block', type: 'divider', divider: {} },
       {
         object: 'block',
         type: 'paragraph',
@@ -453,52 +415,3 @@ export class NotionAdapter implements ExportAdapter {
   }
 }
 
-function heading2(text: string) {
-  return {
-    object: 'block',
-    type: 'heading_2',
-    heading_2: { rich_text: [{ type: 'text', text: { content: text } }] },
-  };
-}
-
-function heading3(text: string) {
-  return {
-    object: 'block',
-    type: 'heading_3',
-    heading_3: { rich_text: [{ type: 'text', text: { content: text } }] },
-  };
-}
-
-function paragraph(text: string) {
-  // Split if too long for Notion
-  if (text.length <= 2000) {
-    return {
-      object: 'block',
-      type: 'paragraph',
-      paragraph: { rich_text: [{ type: 'text', text: { content: text } }] },
-    };
-  }
-
-  // Return first 2000 chars — the rest gets truncated
-  return {
-    object: 'block',
-    type: 'paragraph',
-    paragraph: {
-      rich_text: [{ type: 'text', text: { content: text.slice(0, 2000) } }],
-    },
-  };
-}
-
-function bulletItem(text: string) {
-  return {
-    object: 'block',
-    type: 'bulleted_list_item',
-    bulleted_list_item: {
-      rich_text: [{ type: 'text', text: { content: text.slice(0, 2000) } }],
-    },
-  };
-}
-
-function divider() {
-  return { object: 'block', type: 'divider', divider: {} };
-}

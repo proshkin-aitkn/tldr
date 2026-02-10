@@ -19,6 +19,7 @@ import type {
   FetchModelsResultMessage,
   ProbeVisionResultMessage,
   CheckNotionDuplicateResultMessage,
+  SeekVideoMessage,
 } from '@/lib/messaging/types';
 import type { ModelInfo } from '@/lib/llm/types';
 import { SummaryContent, MetadataHeader, downloadMarkdown } from './pages/SummaryView';
@@ -47,6 +48,7 @@ interface TabState {
   loading: boolean;
   chatLoading: boolean;
   inputValue: string;
+  scrollTop: number;
 }
 
 
@@ -100,16 +102,39 @@ export function App() {
     };
   }, []);
 
-  // Intercept all link clicks and open in a new window to avoid resetting the side panel
+  // Intercept all link clicks and open in a new tab to avoid resetting the side panel.
+  // YouTube timestamp links for the current video seek the player instead.
   useEffect(() => {
+    const YT_VIDEO_RE = /(?:youtube\.com\/watch\?.*v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
     const handler = (e: MouseEvent) => {
       const anchor = (e.target as HTMLElement).closest('a');
       if (!anchor) return;
       const href = anchor.getAttribute('href');
       if (!href || href.startsWith('#')) return;
-      try { const u = new URL(href, location.href); if (u.protocol !== 'https:' && u.protocol !== 'http:') return; } catch { return; }
+      let parsed: URL;
+      try { parsed = new URL(href, location.href); if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return; } catch { return; }
       e.preventDefault();
-      window.open(href, '_blank', 'noopener,noreferrer,width=1024,height=768');
+
+      // Check if this is a same-video YouTube timestamp link
+      const cur = contentRef.current;
+      if (cur?.type === 'youtube') {
+        const linkVideoId = href.match(YT_VIDEO_RE)?.[1];
+        const curVideoId = cur.url.match(YT_VIDEO_RE)?.[1];
+        if (linkVideoId && linkVideoId === curVideoId) {
+          // Use the last &t= param (first may be from the original URL)
+          const tValues = parsed.searchParams.getAll('t');
+          const t = tValues.length > 0 ? tValues[tValues.length - 1] : null;
+          if (t) {
+            const seconds = parseInt(t, 10);
+            if (!isNaN(seconds)) {
+              sendMessage({ type: 'SEEK_VIDEO', seconds } as SeekVideoMessage).catch(() => {});
+              return;
+            }
+          }
+        }
+      }
+
+      window.open(href, '_blank', 'noopener,noreferrer');
     };
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
@@ -135,6 +160,7 @@ export function App() {
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const skipScrollRef = useRef(false);
 
   // Per-tab state backing store
   const tabStatesRef = useRef<Map<number, TabState>>(new Map());
@@ -176,10 +202,12 @@ export function App() {
       loading: loadingRef.current,
       chatLoading: chatLoadingRef.current,
       inputValue: inputValueRef.current,
+      scrollTop: scrollAreaRef.current?.scrollTop ?? 0,
     });
   }, []);
 
   const restoreTabState = useCallback((tabId: number) => {
+    skipScrollRef.current = true;
     const saved = tabStatesRef.current.get(tabId);
     if (saved) {
       setContent(saved.content);
@@ -190,6 +218,10 @@ export function App() {
       setLoading(saved.loading);
       setChatLoading(saved.chatLoading);
       setInputValue(saved.inputValue);
+      const top = saved.scrollTop;
+      requestAnimationFrame(() => {
+        if (scrollAreaRef.current) scrollAreaRef.current.scrollTop = top;
+      });
     } else {
       setContent(null);
       setSummary(null);
@@ -224,10 +256,19 @@ export function App() {
     }
   }, []);
 
-  // Refresh: clear cached state for current tab, then re-extract
+  // Refresh: cancel in-flight summarization, clear cached state, then re-extract
   const handleRefresh = useCallback(() => {
     const tabId = activeTabIdRef.current;
-    if (tabId != null) tabStatesRef.current.delete(tabId);
+    if (tabId != null) {
+      if (loadingRef.current) {
+        sendMessage({ type: 'CANCEL_SUMMARIZE', tabId } as import('@/lib/messaging/types').CancelSummarizeMessage).catch(() => {});
+        setLoading(false);
+      }
+      tabStatesRef.current.delete(tabId);
+    }
+    setSummary(null);
+    setChatMessages([]);
+    setNotionUrl(null);
     extractContent();
   }, [extractContent]);
 
@@ -274,12 +315,32 @@ export function App() {
       if (cached?.content) {
         restoreTabState(info.tabId);
       } else {
+        // Clear stale UI before attempting extraction on the new tab
+        setContent(null);
+        setSummary(null);
+        setChatMessages([]);
+        setNotionUrl(null);
+        setLoading(false);
+        setChatLoading(false);
+        setInputValue('');
         extractContent();
       }
     };
 
-    const onUpdated = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
+    const isUnreachable = (url?: string) =>
+      !url || url.startsWith('chrome://') || url.startsWith('about:') || url.startsWith('chrome-extension://');
+
+    const onUpdated = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => {
       if (tabId === activeTabIdRef.current) {
+        if (isUnreachable(changeInfo.url ?? tab.url)) return;
+        // Cancel in-flight summarization on URL change or page reload
+        if ((changeInfo.url || changeInfo.status === 'loading') && loadingRef.current) {
+          sendMessage({ type: 'CANCEL_SUMMARIZE', tabId } as import('@/lib/messaging/types').CancelSummarizeMessage).catch(() => {});
+          setLoading(false);
+          setSummary(null);
+          setChatMessages([]);
+          setNotionUrl(null);
+        }
         if (changeInfo.status === 'complete') extractContent();
         if (changeInfo.url) {
           if (spaTimer) clearTimeout(spaTimer);
@@ -362,8 +423,12 @@ export function App() {
     return () => { clearInterval(id); clearTimeout(initial); };
   }, [extractEpoch, activeTabId]); // re-run on every new extraction or tab switch
 
-  // Scroll to bottom when new chat messages arrive
+  // Scroll to bottom when new chat messages arrive (skip on tab restore)
   useEffect(() => {
+    if (skipScrollRef.current) {
+      skipScrollRef.current = false;
+      return;
+    }
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages, chatLoading]);
 
@@ -418,6 +483,7 @@ export function App() {
         type: 'SUMMARIZE',
         content: extractedContent,
         userInstructions,
+        tabId: originTabId ?? undefined,
       }) as SummaryResultMessage;
 
       if (!summaryResponse.success || !summaryResponse.data) {
@@ -434,8 +500,9 @@ export function App() {
         }
       }
     } catch (err) {
-      // Route failures to chat as assistant messages
+      // Route failures to chat as assistant messages (silently swallow cancellation)
       const message = err instanceof Error ? err.message : String(err);
+      if (message === 'Summarization cancelled') return;
       if (activeTabIdRef.current === originTabId) {
         setChatMessages((prev) => [...prev, { role: 'assistant', content: message }]);
       } else if (originTabId != null) {
@@ -1045,13 +1112,13 @@ function Header({ onThemeToggle, themeMode, onOpenSettings, onRefresh, onExport,
         <span title="Too Long; Didn't Read" style={{ font: 'var(--md-sys-typescale-title-large)', color: 'var(--md-sys-color-on-surface)' }}>
           TL;DR
         </span>
-        <IconButton onClick={() => window.open('https://buymeacoffee.com/aitkn', '_blank', 'noopener')} label="Support">
+        <IconButton onClick={() => window.open('https://buymeacoffee.com/aitkn', '_blank', 'noopener,noreferrer')} label="Support">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" /></svg>
         </IconButton>
       </div>
       <div style={{ display: 'flex', gap: '4px' }}>
         {notionUrl ? (
-          <IconButton onClick={() => window.open(notionUrl, '_blank', 'noopener')} label="Open in Notion">
+          <IconButton onClick={() => window.open(notionUrl, '_blank', 'noopener,noreferrer')} label="Open in Notion">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M5 19h14V5h-7V3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5c-1.1 0-2-.9-2-2v-7h2v7zM10 3v2H6.41l9.83 9.83-1.41 1.41L5 6.41V10H3V3h7z" /></svg>
           </IconButton>
         ) : (

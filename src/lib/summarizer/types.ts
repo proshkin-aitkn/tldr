@@ -5,6 +5,7 @@ export interface SummaryDocument {
   notableQuotes: string[];
   conclusion: string;
   prosAndCons?: { pros: string[]; cons: string[] };
+  factCheck?: string;
   commentsHighlights?: string[];
   relatedTopics: string[];
   tags: string[];

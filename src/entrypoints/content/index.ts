@@ -70,6 +70,18 @@ export default defineContentScript({
           return true;
         }
 
+        if (msg.type === 'SEEK_VIDEO') {
+          const video = document.querySelector('video');
+          if (video) {
+            video.currentTime = (msg as { seconds: number }).seconds;
+            video.play().catch(() => {});
+            sendResponse({ success: true });
+          } else {
+            sendResponse({ success: false, error: 'No video element found' });
+          }
+          return;
+        }
+
         if (msg.type === 'FETCH_TRANSCRIPT') {
           fetchYouTubeTranscript(msg.videoId!, msg.hintLang)
             .then((transcript) => sendResponse({ success: true, transcript }))
@@ -198,33 +210,40 @@ function parseTranscriptXml(xml: string): string {
   const segments: string[] = [];
 
   // 1. Standard format: <text start="..." dur="...">words</text>
-  const textMatches = xml.matchAll(/<text[^>]*>([\s\S]*?)<\/text>/g);
+  const textMatches = xml.matchAll(/<text([^>]*)>([\s\S]*?)<\/text>/g);
   for (const match of textMatches) {
-    const text = decodeXmlEntities(match[1]).trim();
-    if (text) segments.push(text);
+    const attrs = match[1];
+    const text = decodeXmlEntities(match[2]).trim();
+    if (!text) continue;
+    const startSec = parseFloat(attrs.match(/start="([^"]+)"/)?.[1] ?? '');
+    segments.push(isNaN(startSec) ? text : `[${formatTimestamp(startSec)}] ${text}`);
   }
-  if (segments.length > 0) return segments.join(' ');
+  if (segments.length > 0) return segments.join('\n');
 
-  // 2. SRV3 format: <p t="..." d="..."><s>word</s>...</p>
-  const pMatches = xml.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/g);
+  // 2. SRV3 format: <p t="..." d="..."><s>word</s>...</p>  (t is in ms)
+  const pMatches = xml.matchAll(/<p([^>]*)>([\s\S]*?)<\/p>/g);
   for (const match of pMatches) {
-    const inner = match[1];
+    const attrs = match[1];
+    const inner = match[2];
     const sMatches = inner.matchAll(/<s[^>]*>([^<]*)<\/s>/g);
     const words: string[] = [];
     for (const s of sMatches) {
       const w = decodeXmlEntities(s[1]);
       if (w) words.push(w);
     }
+    let text: string;
     if (words.length > 0) {
-      segments.push(words.join('').trim());
+      text = words.join('').trim();
     } else {
-      const text = decodeXmlEntities(inner.replace(/<[^>]+>/g, '')).trim();
-      if (text) segments.push(text);
+      text = decodeXmlEntities(inner.replace(/<[^>]+>/g, '')).trim();
     }
+    if (!text) continue;
+    const tMs = parseInt(attrs.match(/t="([^"]+)"/)?.[1] ?? '', 10);
+    segments.push(isNaN(tMs) ? text : `[${formatTimestamp(tMs / 1000)}] ${text}`);
   }
-  if (segments.length > 0) return segments.join(' ');
+  if (segments.length > 0) return segments.join('\n');
 
-  // 3. Flat <s> elements (rare fallback)
+  // 3. Flat <s> elements (rare fallback — no timestamps available)
   const segMatches = xml.matchAll(/<s[^>]*>([\s\S]*?)<\/s>/g);
   for (const match of segMatches) {
     const text = decodeXmlEntities(match[1]).trim();
@@ -232,6 +251,14 @@ function parseTranscriptXml(xml: string): string {
   }
 
   return segments.join(' ');
+}
+
+function formatTimestamp(totalSeconds: number): string {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = Math.floor(totalSeconds % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
 }
 
 function decodeXmlEntities(text: string): string {

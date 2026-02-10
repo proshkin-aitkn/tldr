@@ -30,7 +30,9 @@ export type MessageType =
   | 'PROBE_VISION'
   | 'PROBE_VISION_RESULT'
   | 'CHECK_NOTION_DUPLICATE'
-  | 'CHECK_NOTION_DUPLICATE_RESULT';
+  | 'CHECK_NOTION_DUPLICATE_RESULT'
+  | 'SEEK_VIDEO'
+  | 'CANCEL_SUMMARIZE';
 
 export interface ExtractContentMessage {
   type: 'EXTRACT_CONTENT';
@@ -48,6 +50,7 @@ export interface SummarizeMessage {
   type: 'SUMMARIZE';
   content: ExtractedContent;
   userInstructions?: string;
+  tabId?: number;
 }
 
 export interface SummaryChunkMessage {
@@ -203,6 +206,16 @@ export interface CheckNotionDuplicateResultMessage {
   error?: string;
 }
 
+export interface SeekVideoMessage {
+  type: 'SEEK_VIDEO';
+  seconds: number;
+}
+
+export interface CancelSummarizeMessage {
+  type: 'CANCEL_SUMMARIZE';
+  tabId: number;
+}
+
 export type Message =
   | ExtractContentMessage
   | ExtractResultMessage
@@ -230,4 +243,6 @@ export type Message =
   | ProbeVisionMessage
   | ProbeVisionResultMessage
   | CheckNotionDuplicateMessage
-  | CheckNotionDuplicateResultMessage;
+  | CheckNotionDuplicateResultMessage
+  | SeekVideoMessage
+  | CancelSummarizeMessage;

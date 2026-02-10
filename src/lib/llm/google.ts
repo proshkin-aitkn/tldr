@@ -31,15 +31,18 @@ export class GoogleProvider implements LLMProvider {
       body.systemInstruction = systemInstruction;
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 90_000);
+    const timeoutController = new AbortController();
+    const timer = setTimeout(() => timeoutController.abort(), 90_000);
+    const signal = options?.signal
+      ? AbortSignal.any([timeoutController.signal, options.signal])
+      : timeoutController.signal;
 
     try {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        signal: controller.signal,
+        signal,
       });
 
       if (!response.ok) {
@@ -48,9 +51,15 @@ export class GoogleProvider implements LLMProvider {
       }
 
       const data = await response.json();
-      return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const candidate = data.candidates?.[0];
+      const text = candidate?.content?.parts?.[0]?.text || '';
+      if (candidate?.finishReason === 'MAX_TOKENS') {
+        console.warn('[Gemini] Response truncated due to MAX_TOKENS — output may be incomplete');
+      }
+      return text;
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
+        if (options?.signal?.aborted) throw new Error('Summarization cancelled');
         throw new Error('Gemini request timed out after 90s');
       }
       throw err;

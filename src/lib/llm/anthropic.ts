@@ -25,24 +25,41 @@ export class AnthropicProvider implements LLMProvider {
     };
     if (system) body.system = system;
 
-    const response = await fetch(`${this.endpoint}/v1/messages`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': this.config.apiKey,
-        'anthropic-version': API_VERSION,
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify(body),
-    });
+    const timeoutController = new AbortController();
+    const timer = setTimeout(() => timeoutController.abort(), 90_000);
+    const signal = options?.signal
+      ? AbortSignal.any([timeoutController.signal, options.signal])
+      : timeoutController.signal;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
+    try {
+      const response = await fetch(`${this.endpoint}/v1/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': this.config.apiKey,
+          'anthropic-version': API_VERSION,
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify(body),
+        signal,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
+      }
+
+      const data = await response.json();
+      return data.content?.[0]?.text || '';
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        if (options?.signal?.aborted) throw new Error('Summarization cancelled');
+        throw new Error('Anthropic request timed out after 90s');
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
     }
-
-    const data = await response.json();
-    return data.content?.[0]?.text || '';
   }
 
   async *streamChat(messages: ChatMessage[], options?: ChatOptions): AsyncGenerator<string> {

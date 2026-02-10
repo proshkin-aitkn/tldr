@@ -1,7 +1,7 @@
 import { Readability, isProbablyReaderable } from '@mozilla/readability';
 import DOMPurify from 'dompurify';
 import type { ContentExtractor, ExtractedContent } from './types';
-import { extractRichImages } from './image-utils';
+import { extractRichImages, pickThumbnail } from './image-utils';
 import { refineTitleIfGeneric } from './title-utils';
 
 export const articleExtractor: ContentExtractor = {
@@ -45,11 +45,11 @@ export const articleExtractor: ContentExtractor = {
       .filter(Boolean);
     const richImages = extractRichImages(tempDiv);
 
-    // Hero image: og:image, twitter:image, or first article image
+    // Hero image: og:image, twitter:image, or best article image (skip tiny icons)
     const thumbnailUrl =
       doc.querySelector('meta[property="og:image"]')?.getAttribute('content') ||
       doc.querySelector('meta[name="twitter:image"]')?.getAttribute('content') ||
-      images[0] ||
+      pickThumbnail(tempDiv, images) ||
       undefined;
 
     return {

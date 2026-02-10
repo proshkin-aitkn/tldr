@@ -23,17 +23,19 @@ export function SummaryContent({ summary, content, onExport, notionUrl, exportin
     <div>
       {/* TLDR */}
       <Section title="TL;DR" defaultOpen>
-        <p style={{ font: 'var(--md-sys-typescale-body-large)', lineHeight: 1.5, color: 'var(--md-sys-color-on-surface)' }}><InlineMarkdown text={summary.tldr} /></p>
+        <div class="summary-callout">
+          <div style={{ font: 'var(--md-sys-typescale-body-large)', lineHeight: 1.5 }}><MarkdownRenderer content={summary.tldr} /></div>
+        </div>
       </Section>
 
       {/* Key Takeaways */}
       {summary.keyTakeaways.length > 0 && (
         <Section title="Key Takeaways" defaultOpen>
-          <ul style={{ paddingLeft: '20px', font: 'var(--md-sys-typescale-body-medium)', lineHeight: 1.6, color: 'var(--md-sys-color-on-surface)' }}>
+          <ol style={{ paddingLeft: '24px', font: 'var(--md-sys-typescale-body-medium)', lineHeight: 1.6, color: 'var(--md-sys-color-on-surface)' }}>
             {summary.keyTakeaways.map((point, i) => (
-              <li key={i}><InlineMarkdown text={point} /></li>
+              <li key={i} style={{ marginBottom: '4px', paddingLeft: '4px' }}><InlineMarkdown text={point} /></li>
             ))}
-          </ul>
+          </ol>
         </Section>
       )}
 
@@ -65,19 +67,28 @@ export function SummaryContent({ summary, content, onExport, notionUrl, exportin
       {/* Pros and Cons */}
       {summary.prosAndCons && (
         <Section title="Pros & Cons">
-          <div style={{ display: 'flex', gap: '12px', font: 'var(--md-sys-typescale-body-medium)' }}>
-            <div style={{ flex: 1 }}>
-              <strong style={{ color: 'var(--md-sys-color-success)' }}>Pros</strong>
-              <ul style={{ paddingLeft: '16px', marginTop: '4px' }}>
+          <div class="pros-cons-grid">
+            <div class="pros-card">
+              <strong>Pros</strong>
+              <ul>
                 {summary.prosAndCons.pros.map((p, i) => <li key={i}><InlineMarkdown text={p} /></li>)}
               </ul>
             </div>
-            <div style={{ flex: 1 }}>
-              <strong style={{ color: 'var(--md-sys-color-error)' }}>Cons</strong>
-              <ul style={{ paddingLeft: '16px', marginTop: '4px' }}>
+            <div class="cons-card">
+              <strong>Cons</strong>
+              <ul>
                 {summary.prosAndCons.cons.map((c, i) => <li key={i}><InlineMarkdown text={c} /></li>)}
               </ul>
             </div>
+          </div>
+        </Section>
+      )}
+
+      {/* Fact Check */}
+      {summary.factCheck && (
+        <Section title="Fact Check">
+          <div style={{ font: 'var(--md-sys-typescale-body-medium)', lineHeight: 1.5 }}>
+            <MarkdownRenderer content={summary.factCheck} />
           </div>
         </Section>
       )}
@@ -94,8 +105,10 @@ export function SummaryContent({ summary, content, onExport, notionUrl, exportin
       {/* Conclusion */}
       {summary.conclusion && (
         <Section title="Conclusion">
-          <div style={{ font: 'var(--md-sys-typescale-body-medium)', lineHeight: 1.5 }}>
-            <MarkdownRenderer content={summary.conclusion} />
+          <div class="summary-callout-conclusion">
+            <div style={{ font: 'var(--md-sys-typescale-body-medium)', lineHeight: 1.5 }}>
+              <MarkdownRenderer content={summary.conclusion} />
+            </div>
           </div>
         </Section>
       )}
@@ -438,7 +451,7 @@ function summaryToMarkdown(summary: SummaryDocument, content: ExtractedContent |
 
   if (summary.keyTakeaways.length > 0) {
     lines.push('## Key Takeaways', '');
-    for (const t of summary.keyTakeaways) lines.push(`- ${t}`);
+    summary.keyTakeaways.forEach((t, i) => lines.push(`${i + 1}. ${t}`));
     lines.push('');
   }
 
@@ -455,6 +468,10 @@ function summaryToMarkdown(summary: SummaryDocument, content: ExtractedContent |
     lines.push('', '**Cons**', '');
     for (const c of summary.prosAndCons.cons) lines.push(`- ${c}`);
     lines.push('');
+  }
+
+  if (summary.factCheck) {
+    lines.push('## Fact Check', '', summary.factCheck, '');
   }
 
   if (summary.commentsHighlights && summary.commentsHighlights.length > 0) {

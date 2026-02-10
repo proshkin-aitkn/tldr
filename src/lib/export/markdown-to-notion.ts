@@ -65,12 +65,13 @@ function tokensToBlocks(tokens: Token[]): NotionBlock[] {
 
       case 'list': {
         const t = token as Tokens.List;
+        const listType = t.ordered ? 'numbered_list_item' : 'bulleted_list_item';
         for (const item of t.items) {
           const richText = inlineTokensToRichText(item.tokens ? flattenInlineTokens(item.tokens) : []);
           blocks.push({
             object: 'block',
-            type: 'bulleted_list_item',
-            bulleted_list_item: { rich_text: richText },
+            type: listType,
+            [listType]: { rich_text: richText },
           });
         }
         break;
@@ -346,3 +347,4 @@ function mapLanguage(lang: string): string {
   };
   return langMap[lang] || lang || 'plain text';
 }
+

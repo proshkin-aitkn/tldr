@@ -182,6 +182,17 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
   const theme = useResolvedTheme();
   const html = DOMPurify.sanitize(marked.parse(content, { async: false }) as string);
 
+  // Hide broken images gracefully (URLs may expire, especially social media thumbnails)
+  useEffect(() => {
+    if (!ref.current) return;
+    const handleError = (e: Event) => {
+      if (e.target instanceof HTMLImageElement) e.target.style.display = 'none';
+    };
+    // error events don't bubble — must use capture phase
+    ref.current.addEventListener('error', handleError, true);
+    return () => ref.current?.removeEventListener('error', handleError, true);
+  }, [html]);
+
   useEffect(() => {
     if (!ref.current) return;
     const mermaidEls = ref.current.querySelectorAll<HTMLElement>('pre.mermaid');

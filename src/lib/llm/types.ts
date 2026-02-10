@@ -21,6 +21,8 @@ export interface ChatOptions {
   maxTokens?: number;
   /** When true, ask the provider to enforce valid JSON output. */
   jsonMode?: boolean;
+  /** External abort signal to cancel the request (e.g. user navigated away). */
+  signal?: AbortSignal;
 }
 
 export interface LLMProvider {

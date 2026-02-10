@@ -27,6 +27,9 @@ async function getCachedImages(): Promise<{ images: ImageContent[]; urls: { url:
   };
 }
 
+// Per-tab AbortController registry for in-flight summarizations
+const activeSummarizations = new Map<number, AbortController>();
+
 export default defineBackground(() => {
   const chromeObj = (globalThis as unknown as { chrome: typeof chrome }).chrome;
 
@@ -87,8 +90,18 @@ async function handleMessage(message: Message): Promise<Message> {
       return handleExtractContent();
     case 'EXTRACT_COMMENTS':
       return handleExtractComments();
+    case 'SEEK_VIDEO':
+      return handleSeekVideo((message as Message & { seconds: number }).seconds);
     case 'SUMMARIZE':
-      return handleSummarize(message.content, message.userInstructions);
+      return handleSummarize(message.content, message.userInstructions, message.tabId);
+    case 'CANCEL_SUMMARIZE': {
+      const ctrl = activeSummarizations.get((message as import('@/lib/messaging/types').CancelSummarizeMessage).tabId);
+      if (ctrl) {
+        ctrl.abort();
+        activeSummarizations.delete((message as import('@/lib/messaging/types').CancelSummarizeMessage).tabId);
+      }
+      return { type: 'CANCEL_SUMMARIZE', success: true } as Message;
+    }
     case 'CHAT_MESSAGE':
       return handleChatMessage(message.messages, message.summary, message.content, message.theme);
     case 'EXPORT':
@@ -248,7 +261,26 @@ async function handleExtractComments(): Promise<Message> {
   }
 }
 
-async function handleSummarize(content: ExtractedContent, userInstructions?: string): Promise<SummaryResultMessage> {
+async function handleSeekVideo(seconds: number): Promise<Message> {
+  try {
+    const tab = await resolveTargetTab();
+    const response = await sendToTab(tab.id, { type: 'SEEK_VIDEO', seconds });
+    return response as Message;
+  } catch (err) {
+    return { type: 'SEEK_VIDEO', success: false, error: err instanceof Error ? err.message : String(err) } as Message;
+  }
+}
+
+async function handleSummarize(content: ExtractedContent, userInstructions?: string, tabId?: number): Promise<SummaryResultMessage> {
+  // Create AbortController and register by tab ID
+  const controller = new AbortController();
+  if (tabId != null) {
+    // Abort any previous in-flight summarization for this tab
+    activeSummarizations.get(tabId)?.abort();
+    activeSummarizations.set(tabId, controller);
+  }
+  const { signal } = controller;
+
   try {
     // Clear stale image cache from previous summarization
     await cacheImages([], []);
@@ -305,6 +337,7 @@ async function handleSummarize(content: ExtractedContent, userInstructions?: str
         userInstructions,
         fetchedImages: allFetchedImages.length > 0 ? allFetchedImages : undefined,
         imageUrlList: imageUrlList.length > 0 ? imageUrlList : undefined,
+        signal,
       });
       result.llmProvider = providerName;
       result.llmModel = llmConfig.model;
@@ -312,6 +345,7 @@ async function handleSummarize(content: ExtractedContent, userInstructions?: str
     } catch (err) {
       // Round-trip: LLM requested additional images
       if (err instanceof ImageRequestError && imageAnalysisEnabled) {
+        if (signal.aborted) throw new Error('Summarization cancelled');
         const requestedUrls = err.requestedImages.slice(0, 3);
         const remaining = MAX_TOTAL_IMAGES - allFetchedImages.length;
         if (remaining > 0 && requestedUrls.length > 0) {
@@ -335,6 +369,7 @@ async function handleSummarize(content: ExtractedContent, userInstructions?: str
           userInstructions,
           fetchedImages: allFetchedImages.length > 0 ? allFetchedImages : undefined,
           imageUrlList: imageUrlList.length > 0 ? imageUrlList : undefined,
+          signal,
         });
         result.llmProvider = providerName;
         result.llmModel = llmConfig.model;
@@ -348,6 +383,8 @@ async function handleSummarize(content: ExtractedContent, userInstructions?: str
       success: false,
       error: err instanceof Error ? err.message : String(err),
     };
+  } finally {
+    if (tabId != null) activeSummarizations.delete(tabId);
   }
 }
 

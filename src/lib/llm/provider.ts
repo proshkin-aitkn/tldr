@@ -57,8 +57,11 @@ export class OpenAICompatibleProvider implements LLMProvider {
       body.response_format = { type: 'json_object' };
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 90_000);
+    const timeoutController = new AbortController();
+    const timer = setTimeout(() => timeoutController.abort(), 90_000);
+    const signal = options?.signal
+      ? AbortSignal.any([timeoutController.signal, options.signal])
+      : timeoutController.signal;
 
     try {
       const response = await fetch(url, {
@@ -68,7 +71,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
           Authorization: `Bearer ${this.config.apiKey}`,
         },
         body: JSON.stringify(body),
-        signal: controller.signal,
+        signal,
       });
 
       if (!response.ok) {
@@ -80,6 +83,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       return data.choices[0]?.message?.content || '';
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
+        if (options?.signal?.aborted) throw new Error('Summarization cancelled');
         throw new Error('LLM request timed out after 90s');
       }
       throw err;
