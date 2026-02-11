@@ -207,6 +207,27 @@
       [data-theme="dark"] .markdown-content pre.mermaid .legend text,
       [data-theme="dark"] .markdown-content pre.mermaid .slice { color: #e3e2e6 !important; fill: #e3e2e6 !important; }
 
+      /* Mermaid diagram error fallback */
+      .markdown-content pre.mermaid.mermaid-error {
+        font-size: 11px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        opacity: 0.75;
+        cursor: help;
+        position: relative;
+      }
+      .markdown-content pre.mermaid .mermaid-error-hint {
+        display: block;
+        margin-top: 8px;
+        padding-top: 6px;
+        border-top: 1px solid var(--md-sys-color-outline-variant);
+        font-size: 10px;
+        color: var(--md-sys-color-error);
+        font-style: italic;
+        user-select: text;
+        cursor: text;
+      }
+
       /* Summary callout cards */
       .summary-callout {
         background: var(--md-sys-color-info-container);
@@ -256,6 +277,46 @@
       @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
       @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
       @keyframes bounceRight { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(6px); } }
+
+      /* ─── Print styles ─── */
+      @media print {
+        /* Remove fixed layout constraints */
+        html, body, #app { height: auto !important; overflow: visible !important; }
+        html { zoom: 1 !important; }
+        body { background: white !important; color: black !important; }
+
+        /* Hide interactive chrome */
+        .no-print { display: none !important; }
+
+        /* Scrollable area: remove scroll, show all */
+        .print-content { overflow: visible !important; flex: none !important; }
+
+        /* Force all collapsible sections open */
+        .section-content { display: block !important; }
+        .section-toggle span:first-child { display: none !important; }
+
+        /* Images: fit on page, avoid splits */
+        img { max-width: 100% !important; height: auto !important; page-break-inside: avoid; }
+
+        /* Mermaid diagrams: keep together */
+        .markdown-content pre.mermaid { page-break-inside: avoid; box-shadow: none !important; border: 1px solid #ccc !important; }
+
+        /* Sections: avoid orphaned headers */
+        .section-toggle { page-break-after: avoid; }
+
+        /* Pros & cons: keep together */
+        .pros-cons-grid { page-break-inside: avoid; }
+
+        /* Callout cards: print-friendly */
+        .summary-callout, .summary-callout-conclusion { border-left: 3px solid #666 !important; background: #f5f5f5 !important; color: black !important; }
+
+        /* Links: show URL */
+        .markdown-content a[href]::after { content: " (" attr(href) ")"; font-size: 10px; color: #666; word-break: break-all; }
+        .markdown-content a[href^="#"]::after { content: none; }
+
+        /* Hide settings drawer, dialogs, toasts */
+        [style*="z-index: 100"], [style*="z-index: 101"] { display: none !important; }
+      }
     </style>
   </head>
   <body>

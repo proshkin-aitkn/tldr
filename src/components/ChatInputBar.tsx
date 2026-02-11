@@ -54,6 +54,7 @@ export function ChatInputBar({ value, onChange, onSubmit, isFirstSubmit, loading
 
   return (
     <div
+      class="no-print"
       style={{
         padding: '8px 16px',
         backgroundColor: 'var(--md-sys-color-surface-container-low)',

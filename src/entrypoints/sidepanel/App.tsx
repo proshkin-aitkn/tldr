@@ -28,21 +28,25 @@ import { getProviderDefinition } from '@/lib/llm/registry';
 import { Toast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Spinner } from '@/components/Spinner';
-import { MarkdownRenderer } from '@/components/MarkdownRenderer';
+import { MarkdownRenderer, extractMermaidSources } from '@/components/MarkdownRenderer';
+import mermaid from 'mermaid';
 import { SettingsDrawer } from '@/components/SettingsDrawer';
 import { ChatInputBar } from '@/components/ChatInputBar';
 import type { SummarizeVariant } from '@/components/ChatInputBar';
 import { useTheme } from '@/hooks/useTheme';
+import { getSystemPrompt, getSummarizationPrompt } from '@/lib/summarizer/prompts';
 
 interface DisplayMessage {
   role: 'user' | 'assistant';
   content: string;
+  internal?: boolean;
 }
 
 interface TabState {
   content: ExtractedContent | null;
   summary: SummaryDocument | null;
   chatMessages: DisplayMessage[];
+  rawResponses: string[];
   notionUrl: string | null;
   extractEpoch: number;
   loading: boolean;
@@ -51,6 +55,84 @@ interface TabState {
   scrollTop: number;
 }
 
+
+async function findMermaidErrors(
+  summary: SummaryDocument,
+): Promise<Array<{ source: string; error: string }>> {
+  const fields = [
+    summary.tldr, summary.summary, summary.factCheck,
+    summary.conclusion,
+    ...(summary.extraSections?.map(s => s.content) || []),
+  ].filter(Boolean) as string[];
+
+  const errors: Array<{ source: string; error: string }> = [];
+  for (const field of fields) {
+    for (const source of extractMermaidSources(field)) {
+      try {
+        await mermaid.parse(source);
+      } catch (err) {
+        errors.push({ source, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+  }
+  return errors;
+}
+
+/** Validate mermaid blocks in a summary and auto-fix via chat round-trip (max 2 attempts). */
+async function autoFixMermaid(
+  summary: SummaryDocument,
+  content: ExtractedContent,
+  theme: 'light' | 'dark',
+  baseChatMessages: DisplayMessage[],
+  setChatMessages: (fn: (prev: DisplayMessage[]) => DisplayMessage[]) => void,
+  setRawResponses: (fn: (prev: string[]) => string[]) => void,
+): Promise<SummaryDocument> {
+  let finalSummary = summary;
+  const fixMessages: DisplayMessage[] = [];
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const errors = await findMermaidErrors(finalSummary);
+    if (errors.length === 0) break;
+
+    const errorDescs = errors.map(e =>
+      `Error: ${e.error}\n\nBroken diagram:\n\`\`\`mermaid\n${e.source}\n\`\`\``
+    ).join('\n\n---\n\n');
+
+    const fixRequest = `The following mermaid diagram(s) in the summary have syntax errors and failed to render:\n\n${errorDescs}\n\nFix the mermaid syntax errors silently. Rules:\n- Return ONLY the corrected fields in "updates". Set "text" to "".\n- Do NOT add any commentary, changelog, or "fixes applied" notes to the content — just fix the syntax.\n- All diagrams MUST use \`\`\`mermaid fenced code blocks (not plain \`\`\`).`;
+    const userMsg: DisplayMessage = { role: 'user', content: fixRequest, internal: true };
+    fixMessages.push(userMsg);
+    setChatMessages(prev => [...prev, userMsg]);
+
+    const allMessages: ChatMessage[] = [
+      ...baseChatMessages.map(m => ({ role: m.role, content: m.content })),
+      ...fixMessages.map(m => ({ role: m.role, content: m.content })),
+    ];
+
+    const fixResponse = await sendMessage({
+      type: 'CHAT_MESSAGE',
+      messages: allMessages,
+      summary: finalSummary,
+      content,
+      theme,
+    }) as ChatResponseMessage;
+
+    if (fixResponse.success && fixResponse.message) {
+      setRawResponses(prev => [...prev, fixResponse.message!]);
+      const { updates: fixUpdates, text: chatText } = extractJsonAndText(fixResponse.message);
+      const displayText = chatText || (fixUpdates ? 'Summary corrected.' : 'Failed to fix mermaid diagrams.');
+      const assistantMsg: DisplayMessage = { role: 'assistant', content: displayText, internal: true };
+      fixMessages.push(assistantMsg);
+      setChatMessages(prev => [...prev, assistantMsg]);
+      if (fixUpdates) {
+        finalSummary = mergeSummaryUpdates(finalSummary, fixUpdates);
+        finalSummary.llmProvider = summary.llmProvider;
+        finalSummary.llmModel = summary.llmModel;
+      } else break;
+    } else break;
+  }
+
+  return finalSummary;
+}
 
 export function App() {
   const { mode: themeMode, resolved: resolvedTheme, setMode: setThemeMode } = useTheme();
@@ -152,11 +234,15 @@ export function App() {
 
   // Chat state
   const [chatMessages, setChatMessages] = useState<DisplayMessage[]>([]);
+  const [rawResponses, setRawResponses] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
 
   // Settings drawer
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Debug prompt viewer
+  const [debugOpen, setDebugOpen] = useState(false);
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -173,6 +259,7 @@ export function App() {
   const contentRef = useRef<ExtractedContent | null>(null);
   const summaryRef = useRef<SummaryDocument | null>(null);
   const chatMessagesRef = useRef<DisplayMessage[]>([]);
+  const rawResponsesRef = useRef<string[]>([]);
   const notionUrlRef = useRef<string | null>(null);
   const extractEpochRef = useRef<number>(0);
   const activeTabIdRef = useRef<number | null>(null);
@@ -184,6 +271,7 @@ export function App() {
   contentRef.current = content;
   summaryRef.current = summary;
   chatMessagesRef.current = chatMessages;
+  rawResponsesRef.current = rawResponses;
   notionUrlRef.current = notionUrl;
   extractEpochRef.current = extractEpoch;
   activeTabIdRef.current = activeTabId;
@@ -197,6 +285,7 @@ export function App() {
       content: contentRef.current,
       summary: summaryRef.current,
       chatMessages: chatMessagesRef.current,
+      rawResponses: rawResponsesRef.current,
       notionUrl: notionUrlRef.current,
       extractEpoch: extractEpochRef.current,
       loading: loadingRef.current,
@@ -213,6 +302,7 @@ export function App() {
       setContent(saved.content);
       setSummary(saved.summary);
       setChatMessages(saved.chatMessages);
+      setRawResponses(saved.rawResponses);
       setNotionUrl(saved.notionUrl);
       setExtractEpoch(saved.extractEpoch);
       setLoading(saved.loading);
@@ -226,6 +316,7 @@ export function App() {
       setContent(null);
       setSummary(null);
       setChatMessages([]);
+      setRawResponses([]);
       setNotionUrl(null);
       setLoading(false);
       setChatLoading(false);
@@ -496,13 +587,19 @@ export function App() {
         throw new Error(summaryResponse.error || 'Failed to generate summary');
       }
 
+      // Validate mermaid diagrams and auto-fix via chat round-trip (spinner stays active)
+      const finalSummary = await autoFixMermaid(
+        summaryResponse.data, extractedContent, resolvedTheme,
+        chatMessagesRef.current, setChatMessages, setRawResponses,
+      );
+
       if (activeTabIdRef.current === originTabId) {
-        setSummary(summaryResponse.data);
+        setSummary(finalSummary);
         summaryDetailLevelRef.current = settings.summaryDetailLevel;
       } else if (originTabId != null) {
         const saved = tabStatesRef.current.get(originTabId);
         if (saved) {
-          saved.summary = summaryResponse.data;
+          saved.summary = finalSummary;
           saved.loading = false;
         }
       }
@@ -527,7 +624,7 @@ export function App() {
         if (saved) saved.loading = false;
       }
     }
-  }, [content]);
+  }, [content, resolvedTheme]);
 
   const [exporting, setExporting] = useState(false);
   const [duplicateInfo, setDuplicateInfo] = useState<{ pageId: string; pageUrl: string; title: string } | null>(null);
@@ -558,6 +655,47 @@ export function App() {
       setExporting(false);
     }
   }, [summary, content]);
+
+  // Navigate the active browser tab instead of opening new windows
+  const handleNavigate = useCallback((url: string) => {
+    const tabId = activeTabIdRef.current;
+    const chromeObj = (globalThis as unknown as { chrome: typeof chrome }).chrome;
+    if (tabId == null) { chromeObj.tabs.create({ url }); return; }
+
+    // Parse link and current page to detect same-page hash navigation
+    try {
+      const link = new URL(url);
+      const current = contentRef.current?.url ? new URL(contentRef.current.url) : null;
+      // Same page, just a different hash (e.g. #L42) → scroll programmatically, don't change URL
+      if (current && link.origin === current.origin && link.pathname === current.pathname && link.hash) {
+        const elementId = link.hash.slice(1); // strip leading #
+        chromeObj.scripting.executeScript({
+          target: { tabId },
+          func: (id: string) => {
+            // Try exact ID first, then GitHub-specific variants (LC = line content)
+            const el = document.getElementById(id)
+              || document.getElementById('LC' + id.replace(/^L/, ''))
+              || document.querySelector(`[data-line-number="${id.replace(/^L/, '')}"]`);
+            if (el) {
+              // Scroll vertically only — scrollIntoView also scrolls horizontally,
+              // which hides GitHub's line number gutter
+              const rect = el.getBoundingClientRect();
+              const targetY = window.scrollY + rect.top - window.innerHeight / 2;
+              window.scrollTo({ top: targetY, behavior: 'instant' });
+              // Brief highlight
+              const prev = el.style.backgroundColor;
+              el.style.backgroundColor = 'rgba(245, 158, 11, 0.25)';
+              setTimeout(() => { el.style.backgroundColor = prev; }, 2000);
+            }
+          },
+          args: [elementId],
+        });
+        return;
+      }
+    } catch { /* malformed URL — fall through to tab update */ }
+
+    chromeObj.tabs.update(tabId, { url });
+  }, []);
 
   const handleExport = useCallback(async () => {
     if (!summary || !content || exporting) return;
@@ -618,15 +756,35 @@ export function App() {
         throw new Error(response.error || 'Chat failed');
       }
 
-      // Parse response: extract ```json block (summary update) and remaining text (chat)
-      const { json, text: chatText } = extractJsonAndText(response.message!);
+      // Store raw LLM response for debug panel
+      setRawResponses(prev => [...prev, response.message!]);
+
+      // Parse response: extract updates (partial or full) and remaining text (chat)
+      const { updates, text: chatText } = extractJsonAndText(response.message!);
+
+      // Merge updates into existing summary
+      let updatedSummary: SummaryDocument | null = null;
+      if (updates) {
+        const base = summary || emptySummary;
+        updatedSummary = mergeSummaryUpdates(base, updates);
+        // Preserve app-managed fields
+        if (summary) {
+          updatedSummary.llmProvider = summary.llmProvider;
+          updatedSummary.llmModel = summary.llmModel;
+        }
+      }
 
       // Never show raw JSON — use chat text if available, otherwise a status message
-      const displayText = chatText || (json ? 'Summary updated.' : 'Failed to update summary — please try again.');
+      const displayText = chatText || (updatedSummary ? 'Summary updated.' : 'Failed to update summary — please try again.');
+
+      // Auto-fix broken mermaid diagrams in the updated summary
+      const fixedJson = updatedSummary
+        ? await autoFixMermaid(updatedSummary, content, resolvedTheme, chatMessagesRef.current, setChatMessages, setRawResponses)
+        : null;
 
       if (activeTabIdRef.current === originTabId) {
-        if (json) {
-          setSummary(json);
+        if (fixedJson) {
+          setSummary(fixedJson);
           setNotionUrl(null);
           setToast({ message: 'Summary updated', type: 'success' });
         }
@@ -634,11 +792,12 @@ export function App() {
       } else if (originTabId != null) {
         const saved = tabStatesRef.current.get(originTabId);
         if (saved) {
-          if (json) {
-            saved.summary = json;
+          if (fixedJson) {
+            saved.summary = fixedJson;
             saved.notionUrl = null;
           }
           saved.chatMessages = [...saved.chatMessages, { role: 'assistant', content: displayText }];
+          saved.rawResponses = [...saved.rawResponses, response.message!];
           saved.chatLoading = false;
         }
       }
@@ -661,7 +820,7 @@ export function App() {
         if (saved) saved.chatLoading = false;
       }
     }
-  }, [summary, content, chatMessages]);
+  }, [summary, content, chatMessages, resolvedTheme]);
 
   const handleSubmit = useCallback(() => {
     const text = inputValue.trim();
@@ -785,10 +944,13 @@ export function App() {
         exporting={exporting}
         detailLevel={settings.summaryDetailLevel}
         onDetailLevelCycle={handleDetailLevelCycle}
+        debugOpen={debugOpen}
+        onToggleDebug={() => setDebugOpen((v) => !v)}
+        onPrint={summary ? () => window.print() : undefined}
       />
 
       {/* Scrollable content area */}
-      <div ref={scrollAreaRef} style={{ flex: 1, overflow: 'auto' }}>
+      <div ref={scrollAreaRef} class="print-content" style={{ flex: 1, overflow: 'auto' }}>
         {/* Extracting state */}
         {extracting && !content && (
           <div style={{ padding: '48px 24px', textAlign: 'center' }}>
@@ -831,6 +993,17 @@ export function App() {
             />
             <ContentIndicators content={content} settings={settings} />
           </div>
+        )}
+
+        {/* Debug prompt viewer */}
+        {debugOpen && content && (
+          <DebugPanel
+            content={content}
+            settings={settings}
+            summary={summary}
+            chatMessages={chatMessages}
+            rawResponses={rawResponses}
+          />
         )}
 
         {/* Onboarding prompt when LLM is not configured */}
@@ -889,12 +1062,13 @@ export function App() {
               onExport={settings.notion.apiKey ? handleExport : undefined}
               notionUrl={notionUrl}
               exporting={exporting}
+              onNavigate={handleNavigate}
             />
           </div>
         )}
 
         {/* Chat section */}
-        {chatMessages.length > 0 && (
+        {chatMessages.some(m => !m.internal) && (
           <div style={{ padding: '8px 16px 16px' }}>
             <div style={{
               font: 'var(--md-sys-typescale-label-medium)',
@@ -905,7 +1079,7 @@ export function App() {
             }}>
               Chat
             </div>
-            {chatMessages.map((msg, i) => (
+            {chatMessages.filter(m => !m.internal).map((msg, i) => (
               <ChatBubble key={i} role={msg.role} content={msg.content} />
             ))}
             {chatLoading && (
@@ -989,9 +1163,70 @@ function normalizeSummary(parsed: Record<string, unknown>): SummaryDocument {
   };
 }
 
-function extractJsonAndText(raw: string): { json: SummaryDocument | null; text: string } {
-  // Strategy 1: Structured JSON response — {"text": "...", "summary": {...} | null}
-  // This is the preferred format when jsonMode is enabled in the provider.
+const DELETE_SENTINEL = '__DELETE__';
+
+/** Process partial update from LLM — validate/coerce each field, strip app-managed keys. */
+function sanitizePartialUpdate(raw: Record<string, unknown>): Partial<SummaryDocument> | null {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (key === 'llmProvider' || key === 'llmModel') continue;
+    if (value === DELETE_SENTINEL) {
+      result[key] = undefined; // marks for removal during merge
+      continue;
+    }
+    // Type-coerce the same way normalizeSummary does
+    switch (key) {
+      case 'tldr': case 'summary': case 'conclusion': case 'factCheck':
+      case 'sourceLanguage': case 'summaryLanguage': case 'translatedTitle':
+      case 'inferredTitle': case 'inferredAuthor': case 'inferredPublishDate':
+        if (typeof value === 'string') result[key] = value;
+        break;
+      case 'keyTakeaways': case 'notableQuotes': case 'relatedTopics':
+      case 'tags': case 'commentsHighlights':
+        if (Array.isArray(value)) result[key] = value;
+        break;
+      case 'prosAndCons': {
+        const pc = value as { pros?: unknown; cons?: unknown } | undefined;
+        if (pc && typeof pc === 'object') {
+          result[key] = {
+            pros: Array.isArray(pc.pros) ? pc.pros : [],
+            cons: Array.isArray(pc.cons) ? pc.cons : [],
+          };
+        }
+        break;
+      }
+      case 'extraSections':
+        if (Array.isArray(value)) {
+          result[key] = value.filter(
+            (s: unknown) =>
+              s && typeof (s as Record<string, unknown>).title === 'string' &&
+              typeof (s as Record<string, unknown>).content === 'string',
+          ) as Array<{ title: string; content: string }>;
+        }
+        break;
+    }
+  }
+  const keys = Object.keys(result);
+  return keys.length > 0 ? (result as Partial<SummaryDocument>) : null;
+}
+
+/** Merge partial updates into an existing SummaryDocument. undefined values delete keys. */
+function mergeSummaryUpdates(existing: SummaryDocument, updates: Partial<SummaryDocument>): SummaryDocument {
+  const merged = { ...existing };
+  for (const [key, value] of Object.entries(updates)) {
+    if (key === 'llmProvider' || key === 'llmModel') continue;
+    if (value === undefined) {
+      delete (merged as Record<string, unknown>)[key];
+    } else {
+      (merged as Record<string, unknown>)[key] = value;
+    }
+  }
+  return merged;
+}
+
+function extractJsonAndText(raw: string): { updates: Partial<SummaryDocument> | null; text: string } {
+  // Strategy 1: Structured JSON response — {"text": "...", "updates": {...} | null}
+  // Also handles backward-compat {"text": "...", "summary": {...} | null}
   {
     let cleaned = raw.trim();
     if (cleaned.startsWith('```')) {
@@ -1000,16 +1235,24 @@ function extractJsonAndText(raw: string): { json: SummaryDocument | null; text: 
     const parsed = parseJsonSafe(cleaned) as Record<string, unknown> | null;
     if (parsed && typeof parsed === 'object' && 'text' in parsed) {
       const text = typeof parsed.text === 'string' ? parsed.text : '';
-      const summary = parsed.summary;
-      let json: SummaryDocument | null = null;
-      if (summary && typeof summary === 'object' && (summary as Record<string, unknown>).tldr && (summary as Record<string, unknown>).summary) {
-        json = normalizeSummary(summary as Record<string, unknown>);
+      // New format: partial "updates" field; fallback: legacy full "summary"
+      const source = parsed.updates ?? parsed.summary;
+      let updates: Partial<SummaryDocument> | null = null;
+      if (source && typeof source === 'object') {
+        if (parsed.updates) {
+          // Partial update — only changed fields
+          updates = sanitizePartialUpdate(source as Record<string, unknown>);
+        } else {
+          // Legacy full summary — all fields present → full replacement
+          const s = source as Record<string, unknown>;
+          if (s.tldr && s.summary) updates = normalizeSummary(s);
+        }
       }
-      return { json, text };
+      return { updates, text };
     }
     // Also handle a flat summary object (has tldr+summary but no text field)
     if (parsed && typeof parsed === 'object' && (parsed as Record<string, unknown>).tldr && (parsed as Record<string, unknown>).summary) {
-      return { json: normalizeSummary(parsed as Record<string, unknown>), text: '' };
+      return { updates: normalizeSummary(parsed as Record<string, unknown>), text: '' };
     }
   }
 
@@ -1020,11 +1263,11 @@ function extractJsonAndText(raw: string): { json: SummaryDocument | null; text: 
     const jsonStart = raw.indexOf('{', fenceStart);
     if (jsonStart !== -1) {
       const jsonEnd = findMatchingBrace(raw, jsonStart);
-      let json: SummaryDocument | null = null;
+      let updates: Partial<SummaryDocument> | null = null;
       if (jsonEnd !== -1) {
         const parsed = parseJsonSafe(raw.slice(jsonStart, jsonEnd + 1)) as Record<string, unknown> | null;
         if (parsed && parsed.tldr && parsed.summary) {
-          json = normalizeSummary(parsed);
+          updates = normalizeSummary(parsed);
         }
       }
       // Always strip the ```json block from chat text
@@ -1032,7 +1275,7 @@ function extractJsonAndText(raw: string): { json: SummaryDocument | null; text: 
       const closingFence = raw.indexOf('```', searchFrom);
       const endIdx = closingFence !== -1 ? closingFence + 3 : raw.length;
       const text = (raw.slice(0, fenceStart) + raw.slice(endIdx)).trim();
-      return { json, text };
+      return { updates, text };
     }
   }
 
@@ -1044,12 +1287,12 @@ function extractJsonAndText(raw: string): { json: SummaryDocument | null; text: 
       const parsed = parseJsonSafe(raw.slice(braceIdx, braceEnd + 1)) as Record<string, unknown> | null;
       if (parsed && parsed.tldr && parsed.summary) {
         const text = (raw.slice(0, braceIdx) + raw.slice(braceEnd + 1)).trim();
-        return { json: normalizeSummary(parsed), text };
+        return { updates: normalizeSummary(parsed), text };
       }
     }
   }
 
-  return { json: null, text: raw };
+  return { updates: null, text: raw };
 }
 
 function ContentIndicators({ content, settings }: { content: ExtractedContent; settings: Settings }) {
@@ -1126,7 +1369,7 @@ function IndicatorChip({ icon, label, variant }: { icon: string; label: string; 
   );
 }
 
-function Header({ onThemeToggle, themeMode, onOpenSettings, onRefresh, onExport, onSaveMd, notionUrl, exporting, detailLevel, onDetailLevelCycle }: {
+function Header({ onThemeToggle, themeMode, onOpenSettings, onRefresh, onExport, onSaveMd, notionUrl, exporting, detailLevel, onDetailLevelCycle, debugOpen, onToggleDebug, onPrint }: {
   onThemeToggle: () => void;
   themeMode: string;
   onOpenSettings: () => void;
@@ -1137,13 +1380,16 @@ function Header({ onThemeToggle, themeMode, onOpenSettings, onRefresh, onExport,
   exporting?: boolean;
   detailLevel: 'brief' | 'standard' | 'detailed';
   onDetailLevelCycle: () => void;
+  debugOpen: boolean;
+  onToggleDebug: () => void;
+  onPrint?: () => void;
 }) {
   const [mdSaved, setMdSaved] = useState(false);
   // Reset mdSaved when onSaveMd changes (new summary)
   useEffect(() => setMdSaved(false), [onSaveMd]);
 
   return (
-    <div style={{
+    <div class="no-print" style={{
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
@@ -1183,6 +1429,9 @@ function Header({ onThemeToggle, themeMode, onOpenSettings, onRefresh, onExport,
         <IconButton onClick={onSaveMd && !mdSaved ? () => { onSaveMd(); setMdSaved(true); } : undefined} label={mdSaved ? 'Saved' : 'Save .md'} disabled={!onSaveMd || mdSaved}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" /></svg>
         </IconButton>
+        <IconButton onClick={onPrint} label="Print" disabled={!onPrint}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z" /></svg>
+        </IconButton>
         <DetailLevelButton level={detailLevel} onClick={onDetailLevelCycle} />
         <IconButton onClick={onRefresh} label="Refresh">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" /></svg>
@@ -1195,6 +1444,9 @@ function Header({ onThemeToggle, themeMode, onOpenSettings, onRefresh, onExport,
           ) : (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M20 3H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h6v2H8v2h8v-2h-2v-2h6c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 12H4V5h16v10z" /></svg>
           )}
+        </IconButton>
+        <IconButton onClick={onToggleDebug} label="Debug prompts" active={debugOpen}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z" /></svg>
         </IconButton>
         <IconButton onClick={onOpenSettings} label="Settings">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
@@ -1240,7 +1492,7 @@ function DetailLevelButton({ level, onClick }: { level: 'brief' | 'standard' | '
   );
 }
 
-function IconButton({ onClick, label, children, disabled }: { onClick?: () => void; label: string; children: preact.ComponentChildren; disabled?: boolean }) {
+function IconButton({ onClick, label, children, disabled, active }: { onClick?: () => void; label: string; children: preact.ComponentChildren; disabled?: boolean; active?: boolean }) {
   return (
     <button
       onClick={disabled ? undefined : onClick}
@@ -1248,12 +1500,12 @@ function IconButton({ onClick, label, children, disabled }: { onClick?: () => vo
       title={label}
       disabled={disabled}
       style={{
-        background: 'none',
+        background: active ? 'var(--md-sys-color-primary-container)' : 'none',
         border: 'none',
         cursor: disabled ? 'default' : 'pointer',
         padding: '8px',
         borderRadius: 'var(--md-sys-shape-corner-small)',
-        color: 'var(--md-sys-color-on-surface-variant)',
+        color: active ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface-variant)',
         opacity: disabled ? 0.35 : 1,
         display: 'flex',
         alignItems: 'center',
@@ -1283,6 +1535,116 @@ function ChatBubble({ role, content: text }: { role: 'user' | 'assistant'; conte
       }}
     >
       {isUser ? text : <MarkdownRenderer content={text} />}
+    </div>
+  );
+}
+
+function DebugPanel({ content, settings, summary, chatMessages, rawResponses }: {
+  content: ExtractedContent;
+  settings: Settings;
+  summary: SummaryDocument | null;
+  chatMessages: DisplayMessage[];
+  rawResponses: string[];
+}) {
+  const imageCount = content.richImages?.length ?? 0;
+  let imageAnalysisEnabled = false;
+  if (imageCount > 0) {
+    const activeConfig = getActiveProviderConfig(settings);
+    const key = `${settings.activeProviderId}:${activeConfig.model}`;
+    const vision = settings.modelCapabilities?.[key]?.vision;
+    imageAnalysisEnabled = !!((settings.enableImageAnalysis ?? true) && (vision === 'base64' || vision === 'url'));
+  }
+
+  const systemPrompt = getSystemPrompt(
+    settings.summaryDetailLevel,
+    settings.summaryLanguage,
+    settings.summaryLanguageExcept,
+    imageAnalysisEnabled,
+    content.wordCount,
+    content.type,
+    content.githubPageType,
+  );
+  const userPrompt = getSummarizationPrompt(content, settings.summaryDetailLevel);
+
+  return (
+    <div style={{
+      margin: '0 16px 12px',
+      padding: '10px',
+      borderRadius: 'var(--md-sys-shape-corner-medium)',
+      backgroundColor: 'var(--md-sys-color-surface-container-low)',
+      border: '1px solid var(--md-sys-color-outline-variant)',
+    }}>
+      <div style={{
+        font: 'var(--md-sys-typescale-label-medium)',
+        color: 'var(--md-sys-color-on-surface-variant)',
+        marginBottom: '6px',
+      }}>
+        Debug: Prompts
+      </div>
+      <DebugSection title="System Prompt" content={systemPrompt} />
+      <DebugSection title="User Prompt" content={userPrompt} />
+      <DebugSection title="Extracted Content" content={content.content} />
+      {summary && (
+        <DebugSection title="Summary JSON" content={JSON.stringify(summary, null, 2)} />
+      )}
+      {chatMessages.length > 0 && (
+        <DebugSection
+          title="Chat"
+          content={chatMessages.map((m) => `[${m.role}${m.internal ? ' (auto-fix)' : ''}]\n${m.content}`).join('\n\n---\n\n')}
+        />
+      )}
+      {rawResponses.length > 0 && (
+        <DebugSection
+          title={`Raw LLM Responses (${rawResponses.length})`}
+          content={rawResponses.map((r, i) => `--- Response ${i + 1} ---\n${r}`).join('\n\n')}
+        />
+      )}
+    </div>
+  );
+}
+
+function DebugSection({ title, content }: { title: string; content: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginBottom: '4px' }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          padding: '4px 0',
+          font: 'var(--md-sys-typescale-label-small)',
+          color: 'var(--md-sys-color-primary)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+        }}
+      >
+        <span style={{ fontSize: '10px' }}>{open ? '\u25BC' : '\u25B6'}</span>
+        {title}
+        <span style={{ color: 'var(--md-sys-color-on-surface-variant)', fontWeight: 'normal' }}>
+          ({content.length.toLocaleString()} chars)
+        </span>
+      </button>
+      {open && (
+        <pre style={{
+          maxHeight: '300px',
+          overflow: 'auto',
+          fontSize: '11px',
+          lineHeight: 1.4,
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          margin: '2px 0 4px',
+          padding: '8px',
+          borderRadius: 'var(--md-sys-shape-corner-small)',
+          backgroundColor: 'var(--md-sys-color-surface-container)',
+          color: 'var(--md-sys-color-on-surface)',
+          border: '1px solid var(--md-sys-color-outline-variant)',
+        }}>
+          {content}
+        </pre>
+      )}
     </div>
   );
 }

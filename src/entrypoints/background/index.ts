@@ -455,11 +455,12 @@ ${originalContent ? `\nOriginal page content:\n${originalContent}` : ''}`;
 ${JSON.stringify(summary, null, 2)}
 
 Response format rules:
-- You MUST respond with a JSON object matching this structure: {"text": "your message", "summary": <updated summary object or null>}
-- The "text" field contains your message to the user (explanation, answer, comment). Markdown formatting is supported. Use an empty string if you have nothing to say beyond the update.
-- The "summary" field contains the COMPLETE updated summary object (all fields) when you need to update it. Set to null if no update is needed.
-- IMPORTANT: Always respond with valid JSON. Do not include anything outside the JSON object — no markdown fences, no extra text.
-- When updating the summary, always return the COMPLETE JSON object (all fields), not just the changed parts.
+- You MUST respond with a JSON object: {"text": "your message", "updates": <changed fields or null>}
+- "text": your conversational response to the user. Markdown supported. Use "" if you have nothing to say beyond the update.
+- "updates": an object with ONLY the summary fields you want to change. Omit fields that stay the same. Set to null if no changes needed (e.g. just answering a question).
+- Each field you include is replaced entirely — you cannot patch part of a field. Always provide the complete value for any field you want to change.
+- To remove an optional field, set its value to the string "__DELETE__" (e.g. "factCheck": "__DELETE__").
+- IMPORTANT: Always respond with valid JSON. No markdown fences, no extra text.
 - To add custom sections (cheat sheets, tables, extras the user requests), use the "extraSections" array field: [{"title": "Section Name", "content": "markdown content"}]. Content supports full markdown and mermaid diagrams (flowchart, sequence, timeline, etc.).
 - MERMAID SYNTAX (MANDATORY): Node IDs must be ONLY letters or digits (A, B, C1, node1) — NO colons, dashes, dots, spaces, or any special characters in IDs. ALL display text goes inside brackets: A["Label with special:chars"], B{"Decision?"}. Edge labels use |label| syntax. Always use \`flowchart TD\` or \`flowchart LR\`, never \`graph\`. Example: \`flowchart TD\\n  A["Start"] --> B{"Check?"}\\n  B -->|Yes| C["Done"]\`
 - UI THEME: The user's interface is currently in **${theme || 'dark'} mode**. When generating diagrams, tables, or any visual elements with colors, choose colors that are readable and look good on a ${theme || 'dark'} background.

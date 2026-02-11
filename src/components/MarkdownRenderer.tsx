@@ -128,6 +128,7 @@ function getMermaidConfig(theme: 'light' | 'dark') {
 }
 
 let mermaidInitialized = false;
+let renderCounter = 0;
 
 function initMermaid(theme: 'light' | 'dark') {
   if (mermaidInitialized) return;
@@ -178,7 +179,7 @@ interface MarkdownRendererProps {
 }
 
 // Extract raw mermaid source blocks from markdown before DOMPurify can modify them
-function extractMermaidSources(md: string): string[] {
+export function extractMermaidSources(md: string): string[] {
   const sources: string[] = [];
   const re = /```mermaid\n([\s\S]*?)```/g;
   let m;
@@ -221,9 +222,37 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
 
     initMermaid(theme);
     mermaid.initialize(getMermaidConfig(theme));
-    mermaid.run({ nodes: mermaidEls }).catch(() => {
-      // If mermaid fails to parse, leave the raw text visible
-    });
+
+    // Render each diagram individually for isolation and proper error display
+    let cancelled = false;
+    (async () => {
+      for (let i = 0; i < mermaidEls.length; i++) {
+        if (cancelled) return;
+        const el = mermaidEls[i];
+        const source = el.dataset.source || el.textContent || '';
+        if (!source.trim()) continue;
+        const renderId = `mermaid-${Date.now()}-${renderCounter++}`;
+        try {
+          const { svg, bindFunctions } = await mermaid.render(renderId, source);
+          if (cancelled) return;
+          el.innerHTML = svg;
+          bindFunctions?.(el);
+        } catch (err) {
+          if (cancelled) return;
+          const msg = err instanceof Error ? err.message : String(err);
+          el.classList.add('mermaid-error');
+          el.title = msg;
+          el.dataset.error = msg;
+          const hint = document.createElement('span');
+          hint.className = 'mermaid-error-hint';
+          hint.textContent = msg;
+          el.appendChild(hint);
+          // Clean up orphaned mermaid render container
+          document.getElementById('d' + renderId)?.remove();
+        }
+      }
+    })();
+    return () => { cancelled = true; };
   }, [html, theme]);
 
   return <div ref={ref} class="markdown-content" dangerouslySetInnerHTML={{ __html: html }} />;
