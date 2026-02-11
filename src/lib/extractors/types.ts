@@ -1,4 +1,4 @@
-export type ContentType = 'article' | 'youtube' | 'facebook' | 'reddit' | 'twitter' | 'generic';
+export type ContentType = 'article' | 'youtube' | 'facebook' | 'reddit' | 'twitter' | 'github' | 'generic';
 
 export interface ExtractedContent {
   type: ContentType;
@@ -23,6 +23,12 @@ export interface ExtractedContent {
   subreddit?: string;
   postScore?: number;
   commentCount?: number;
+
+  // GitHub-specific
+  githubPageType?: 'pr' | 'issue' | 'code' | 'repo' | 'commit' | 'release';
+  prState?: 'open' | 'closed' | 'merged';
+  issueState?: 'open' | 'closed';
+  repoStars?: number;
 
   // Comments
   comments?: ExtractedComment[];
