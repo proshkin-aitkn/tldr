@@ -35,7 +35,6 @@ import { SettingsDrawer } from '@/components/SettingsDrawer';
 import { ChatInputBar } from '@/components/ChatInputBar';
 import type { SummarizeVariant } from '@/components/ChatInputBar';
 import { useTheme } from '@/hooks/useTheme';
-import { getSummarizationPrompt } from '@/lib/summarizer/prompts';
 import { buildSummarizationSystemPrompt } from '@/lib/summarizer/summarizer';
 
 interface DisplayMessage {
@@ -1203,8 +1202,6 @@ export function App() {
             content={content}
             settings={settings}
             summary={summary}
-            chatMessages={chatMessages}
-            rawResponses={rawResponses}
             actualSystemPrompt={actualSystemPrompt}
             conversationLog={conversationLog}
           />
@@ -1789,17 +1786,14 @@ function ChatBubble({ role, content: text }: { role: 'user' | 'assistant'; conte
   );
 }
 
-function DebugPanel({ content, settings, summary, chatMessages, rawResponses, actualSystemPrompt, conversationLog }: {
+function DebugPanel({ content, settings, summary, actualSystemPrompt, conversationLog }: {
   content: ExtractedContent;
   settings: Settings;
   summary: SummaryDocument | null;
-  chatMessages: DisplayMessage[];
-  rawResponses: string[];
   actualSystemPrompt: string;
   conversationLog: { role: string; content: string }[];
 }) {
   // Use the actual system prompt when available (after summarization), otherwise preview
-  // using the same buildSummarizationSystemPrompt() that summarize() uses
   const systemPrompt = actualSystemPrompt || (() => {
     const imageCount = content.richImages?.length ?? 0;
     let imageAnalysisEnabled = false;
@@ -1819,7 +1813,6 @@ function DebugPanel({ content, settings, summary, chatMessages, rawResponses, ac
       content.githubPageType,
     );
   })();
-  const userPrompt = getSummarizationPrompt(content, settings.summaryDetailLevel);
 
   return (
     <div class="no-print" style={{
@@ -1837,27 +1830,14 @@ function DebugPanel({ content, settings, summary, chatMessages, rawResponses, ac
         Debug: Prompts
       </div>
       <DebugSection title="System Prompt" content={systemPrompt} />
-      <DebugSection title="User Prompt" content={userPrompt} />
-      <DebugSection title="Extracted Content" content={content.content} />
+      <DebugSection title="Extracted Document" content={content.content} />
       {summary && (
-        <DebugSection title="Summary JSON" content={JSON.stringify(summary, null, 2)} />
-      )}
-      {chatMessages.length > 0 && (
-        <DebugSection
-          title="Chat"
-          content={chatMessages.map((m) => `[${m.role}${m.internal ? ' (auto-fix)' : ''}]\n${m.content}`).join('\n\n---\n\n')}
-        />
+        <DebugSection title="Summary" content={JSON.stringify(summary, null, 2)} />
       )}
       {conversationLog.length > 0 && (
         <DebugSection
           title={`Conversation (${conversationLog.length} messages)`}
-          content={conversationLog.map((m, i) => `--- [${m.role}] (${m.content.length.toLocaleString()} chars) ---\n${m.content}`).join('\n\n')}
-        />
-      )}
-      {rawResponses.length > 0 && (
-        <DebugSection
-          title={`Raw LLM Responses (${rawResponses.length})`}
-          content={rawResponses.map((r, i) => `--- Response ${i + 1} ---\n${r}`).join('\n\n')}
+          content={conversationLog.map((m) => `--- [${m.role}] (${m.content.length.toLocaleString()} chars) ---\n${m.content}`).join('\n\n')}
         />
       )}
     </div>
@@ -1866,28 +1846,53 @@ function DebugPanel({ content, settings, summary, chatMessages, rawResponses, ac
 
 function DebugSection({ title, content }: { title: string; content: string }) {
   const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copy = (e: Event) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
   return (
     <div style={{ marginBottom: '4px' }}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        style={{
-          background: 'none',
-          border: 'none',
-          cursor: 'pointer',
-          padding: '4px 0',
-          font: 'var(--md-sys-typescale-label-small)',
-          color: 'var(--md-sys-color-primary)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-        }}
-      >
-        <span style={{ fontSize: '10px' }}>{open ? '\u25BC' : '\u25B6'}</span>
-        {title}
-        <span style={{ color: 'var(--md-sys-color-on-surface-variant)', fontWeight: 'normal' }}>
-          ({content.length.toLocaleString()} chars)
-        </span>
-      </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+        <button
+          onClick={() => setOpen((v) => !v)}
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            padding: '4px 0',
+            font: 'var(--md-sys-typescale-label-small)',
+            color: 'var(--md-sys-color-primary)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+          }}
+        >
+          <span style={{ fontSize: '10px' }}>{open ? '\u25BC' : '\u25B6'}</span>
+          {title}
+          <span style={{ color: 'var(--md-sys-color-on-surface-variant)', fontWeight: 'normal' }}>
+            ({content.length.toLocaleString()} chars)
+          </span>
+        </button>
+        <button
+          onClick={copy}
+          title="Copy to clipboard"
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            padding: '2px 4px',
+            font: 'var(--md-sys-typescale-label-small)',
+            color: copied ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-on-surface-variant)',
+            lineHeight: 1,
+          }}
+        >
+          {copied ? '\u2713' : '\u2398'}
+        </button>
+      </div>
       {open && (
         <pre style={{
           maxHeight: '300px',
