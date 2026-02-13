@@ -36,7 +36,7 @@ import { SettingsDrawer } from '@/components/SettingsDrawer';
 import { ChatInputBar } from '@/components/ChatInputBar';
 import type { SummarizeVariant } from '@/components/ChatInputBar';
 import { useTheme } from '@/hooks/useTheme';
-import { buildSummarizationSystemPrompt } from '@/lib/summarizer/summarizer';
+import { buildSummarizationSystemPrompt, replacePlaceholders, buildPlaceholders } from '@/lib/summarizer/summarizer';
 
 interface TabState {
   content: ExtractedContent | null;
@@ -1109,6 +1109,32 @@ export function App() {
     }
   }, [summary, content, persistToSession]);
 
+  // Scroll to a GitHub line element by injecting a script into the tab
+  const scrollToGitHubLine = (chromeObj: typeof chrome, tabId: number, elementId: string) => {
+    chromeObj.scripting.executeScript({
+      target: { tabId },
+      func: (id: string) => {
+        // Extract first line number from hash (handles L42 and L42-L50 ranges)
+        const num = id.match(/^L(\d+)/)?.[1] || '';
+        // Try exact ID, then GitHub-specific variants (LC = line content, data-line-number)
+        const el = document.getElementById(id)
+          || document.getElementById('LC' + num)
+          || document.querySelector(`[data-line-number="${num}"]`);
+        if (el) {
+          // Scroll vertically only — scrollIntoView also scrolls horizontally,
+          // which hides GitHub's line number gutter
+          const rect = el.getBoundingClientRect();
+          window.scrollTo({ top: window.scrollY + rect.top - window.innerHeight / 2, behavior: 'instant' });
+          // Brief highlight
+          const prev = el.style.backgroundColor;
+          el.style.backgroundColor = 'rgba(245, 158, 11, 0.25)';
+          setTimeout(() => { el.style.backgroundColor = prev; }, 2000);
+        }
+      },
+      args: [elementId],
+    });
+  };
+
   // Navigate the active browser tab instead of opening new windows
   const handleNavigate = useCallback((url: string) => {
     const tabId = activeTabIdRef.current;
@@ -1140,33 +1166,83 @@ export function App() {
     try {
       const link = new URL(url);
       const current = contentRef.current?.url ? new URL(contentRef.current.url) : null;
-      // Same page, just a different hash (e.g. #L42) → scroll programmatically, don't change URL
-      if (current && link.origin === current.origin && link.pathname === current.pathname && link.hash) {
-        const elementId = link.hash.slice(1); // strip leading #
-        chromeObj.scripting.executeScript({
-          target: { tabId },
-          func: (id: string) => {
-            // Try exact ID first, then GitHub-specific variants (LC = line content)
-            const el = document.getElementById(id)
-              || document.getElementById('LC' + id.replace(/^L/, ''))
-              || document.querySelector(`[data-line-number="${id.replace(/^L/, '')}"]`);
-            if (el) {
-              // Scroll vertically only — scrollIntoView also scrolls horizontally,
-              // which hides GitHub's line number gutter
-              const rect = el.getBoundingClientRect();
-              const targetY = window.scrollY + rect.top - window.innerHeight / 2;
-              window.scrollTo({ top: targetY, behavior: 'instant' });
-              // Brief highlight
-              const prev = el.style.backgroundColor;
-              el.style.backgroundColor = 'rgba(245, 158, 11, 0.25)';
-              setTimeout(() => { el.style.backgroundColor = prev; }, 2000);
-            }
-          },
-          args: [elementId],
-        });
-        return;
+
+      if (current && link.hash) {
+        // Same page, just a different hash (e.g. #L42) → scroll programmatically, don't change URL
+        if (link.origin === current.origin && link.pathname === current.pathname) {
+          scrollToGitHubLine(chromeObj, tabId, link.hash.slice(1));
+          return;
+        }
+
+        // GitHub commit/PR page → try scrolling to the line within the diff view
+        // instead of navigating away to a separate blob page
+        if (link.hostname === 'github.com' && /\/(commit|pull)\//.test(current.pathname)) {
+          const blobMatch = link.pathname.match(/^\/[^/]+\/[^/]+\/blob\/[^/]+\/(.+)/);
+          if (blobMatch) {
+            const filePath = decodeURIComponent(blobMatch[1]);
+            const lineNum = link.hash.slice(1).match(/^L(\d+)/)?.[1] || '';
+            chromeObj.scripting.executeScript({
+              target: { tabId },
+              func: (path: string, num: string, fallbackUrl: string) => {
+                // Find file container in diff — try data attribute first, then header title
+                let fileEl = document.querySelector(`[data-file-path="${path}"]`)?.closest('.file');
+                if (!fileEl) {
+                  for (const el of document.querySelectorAll('.file-header [title]')) {
+                    if (el.getAttribute('title') === path) { fileEl = el.closest('.file'); break; }
+                  }
+                }
+
+                if (fileEl && num) {
+                  // Find line in diff — try right-side (new) line numbers, then left-side
+                  const lineEl = fileEl.querySelector(`td[data-line-number="${num}"]`)
+                    || fileEl.querySelector(`[id$="R${num}"]`)
+                    || fileEl.querySelector(`[id$="L${num}"]`);
+                  if (lineEl) {
+                    const rect = lineEl.getBoundingClientRect();
+                    window.scrollTo({ top: window.scrollY + rect.top - window.innerHeight / 2, behavior: 'instant' });
+                    const row = (lineEl.closest('tr') || lineEl) as HTMLElement;
+                    const prev = row.style.backgroundColor;
+                    row.style.backgroundColor = 'rgba(245, 158, 11, 0.25)';
+                    setTimeout(() => { row.style.backgroundColor = prev; }, 2000);
+                    return;
+                  }
+                }
+
+                // File header found but specific line not found → scroll to file header
+                if (fileEl) {
+                  fileEl.scrollIntoView({ behavior: 'instant', block: 'start' });
+                  return;
+                }
+
+                // File not in current diff view → navigate to blob URL
+                window.location.href = fallbackUrl;
+              },
+              args: [filePath, lineNum, url],
+            });
+            return;
+          }
+        }
       }
     } catch { /* malformed URL — fall through to tab update */ }
+
+    // Cross-page navigation — if it has a line hash, ensure scroll after load
+    try {
+      const link = new URL(url);
+      if (link.hostname === 'github.com' && link.hash && /^#L\d+/.test(link.hash)) {
+        const lineId = link.hash.slice(1);
+        chromeObj.tabs.update(tabId, { url });
+        // After page loads, scroll to the line (GitHub's client-side rendering
+        // may not process hash anchors reliably after tabs.update navigation)
+        const onUpdated = (tid: number, info: chrome.tabs.TabChangeInfo) => {
+          if (tid !== tabId || info.status !== 'complete') return;
+          chromeObj.tabs.onUpdated.removeListener(onUpdated);
+          scrollToGitHubLine(chromeObj, tabId, lineId);
+        };
+        chromeObj.tabs.onUpdated.addListener(onUpdated);
+        setTimeout(() => chromeObj.tabs.onUpdated.removeListener(onUpdated), 10000);
+        return;
+      }
+    } catch { /* fall through */ }
 
     chromeObj.tabs.update(tabId, { url });
   }, []);
@@ -1252,6 +1328,8 @@ export function App() {
       if (updates) {
         const base = summary || emptySummary;
         updatedSummary = mergeSummaryUpdates(base, updates);
+        // Resolve {{FILE_N}} / {{VIDEO_URL}} / {{IMG_N}} placeholders the LLM may use in chat
+        updatedSummary = replacePlaceholders(updatedSummary, buildPlaceholders(content));
         // Preserve app-managed fields
         if (summary) {
           updatedSummary.llmProvider = summary.llmProvider;

@@ -285,7 +285,7 @@ function formatImageUrlListing(imageUrlList: { url: string; alt: string }[]): st
 }
 
 /** Replace {{PLACEHOLDER}} tokens with actual URLs in all text fields of the summary. */
-function replacePlaceholders(doc: SummaryDocument, replacements: [string, string][]): SummaryDocument {
+export function replacePlaceholders(doc: SummaryDocument, replacements: [string, string][]): SummaryDocument {
   if (replacements.length === 0) return doc;
 
   const r = (s: string): string => {
@@ -314,7 +314,7 @@ function replacePlaceholders(doc: SummaryDocument, replacements: [string, string
   };
 }
 
-function buildPlaceholders(content: ExtractedContent, imageUrlList?: { url: string; alt: string }[]): [string, string][] {
+export function buildPlaceholders(content: ExtractedContent, imageUrlList?: { url: string; alt: string }[]): [string, string][] {
   const replacements: [string, string][] = [];
   if (imageUrlList?.length) {
     imageUrlList.forEach((img, i) => replacements.push([`{{IMG_${i + 1}}}`, img.url]));
