@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 import type { SummaryDocument } from '@/lib/summarizer/types';
 import type { ExtractedContent } from '@/lib/extractors/types';
-import { MarkdownRenderer, InlineMarkdown } from '@/components/MarkdownRenderer';
+import { MarkdownRenderer, InlineMarkdown, fixMermaidSyntax } from '@/components/MarkdownRenderer';
 
 const LANG_LABELS: Record<string, string> = {
   en: 'EN', es: 'ES', fr: 'FR', de: 'DE',
@@ -657,7 +657,7 @@ function summaryToMarkdown(summary: SummaryDocument, content: ExtractedContent |
 
   lines.push(`*Generated with [TL;DR](https://chromewebstore.google.com/detail/pikdhogjjbaakcpedmahckhmajdgdeon)*`);
 
-  return lines.join('\n');
+  return fixMermaidSyntax(lines.join('\n'));
 }
 
 export function downloadMarkdown(summary: SummaryDocument, content: ExtractedContent | null) {

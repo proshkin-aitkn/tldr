@@ -72,6 +72,8 @@ getSomething() int
 
 ## Relationships
 
+**WARNING:** `||--o{`, `}|--|{`, `*--o{` are erDiagram-only — they will crash classDiagram. Use only the syntax below:
+
 | Syntax   | Meaning       |
 |----------|---------------|
 | `<\|--`  | Inheritance   |

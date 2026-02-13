@@ -30,7 +30,7 @@ import { Toast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Spinner } from '@/components/Spinner';
 import { MarkdownRenderer, extractMermaidSources, fixMermaidBlocks, stripBrokenMermaidBlocks } from '@/components/MarkdownRenderer';
-import { MERMAID_ESSENTIAL_RULES, annotateMermaidErrors, getRecoveryDocs } from '@/lib/mermaid-rules';
+import { annotateMermaidErrors, getRecoveryDocs } from '@/lib/mermaid-rules';
 import mermaid from 'mermaid';
 import { SettingsDrawer } from '@/components/SettingsDrawer';
 import { ChatInputBar } from '@/components/ChatInputBar';
@@ -155,7 +155,7 @@ function buildMermaidFixPrompt(
 ): string {
   if (attempt <= 4) {
     const docs = getRecoveryDocs(errors);
-    return `The current summary has ${errors.length} mermaid chart(s) with syntax errors.\nThe errors are annotated inline as <!-- MERMAID ERROR: ... --> comments right after the broken diagrams in the summary JSON above.\n\nHere is documentation that may help you resolve the issues:\n${docs}\n\nThis is your attempt ${attempt} of 4 to fix all issues. Return the corrected fields in "updates". Set "text" to "".\nRules:\n- Fix the mermaid syntax errors in place.\n- Do NOT add commentary or changelog.\n- All diagrams MUST use \`\`\`mermaid fenced code blocks.\n${MERMAID_ESSENTIAL_RULES}`;
+    return `The current summary has ${errors.length} mermaid chart(s) with syntax errors.\nThe errors are annotated inline as <!-- MERMAID ERROR: ... --> comments right after the broken diagrams in the summary JSON above.\n\nHere is documentation that may help you resolve the issues:\n${docs}\n\nThis is your attempt ${attempt} of 4 to fix all issues. Return the corrected fields in "updates". Set "text" to "".\nRules:\n- Fix the mermaid syntax errors in place.\n- Do NOT add commentary or changelog.\n- All diagrams MUST use \`\`\`mermaid fenced code blocks.`;
   }
   return `The current summary has ${errors.length} mermaid chart(s) that still have errors after 4 fix attempts.\nREMOVE all broken mermaid diagrams from the summary. You MUST also:\n- Remove any legend line that accompanied a removed diagram (e.g. lines with colored squares like 🟦 🟧 🟩 or circles like 🔵 🟠 🟢).\n- If an extraSection existed ONLY to hold a diagram (and now has no meaningful content), delete it with "__DELETE__".\n- Rewrite any surrounding text that references a removed diagram so it reads naturally without it.\nThe broken diagrams are annotated with <!-- MERMAID ERROR: ... --> comments in the summary JSON above.\n\nReturn the corrected fields in "updates". Set "text" to "".`;
 }
@@ -294,12 +294,13 @@ async function autoFixMermaidStepped(
     const errors = await findMermaidErrors(finalSummary);
     if (errors.length === 0) break;
 
-    const strippedSummary = stripBrokenFromSummary(finalSummary, errors.map(e => e.source));
-    setSummary(strippedSummary);
-
     // Pre-build the fix prompt so the pending UI can show it
     const previewPrompt = buildMermaidFixPrompt(errors, attempt);
     const annotatedSummary = annotateSummaryFields(finalSummary, errors);
+
+    // Show annotated summary (with <!-- MERMAID ERROR --> markers) so the debug
+    // panel "Summary Result (local)" shows errors immediately before any fix attempt.
+    setSummary(annotatedSummary);
 
     // Build preview conversationLog showing exactly what will be sent
     if (wrappedSetConversationLog && lastConvLog?.length) {

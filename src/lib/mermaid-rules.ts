@@ -32,33 +32,42 @@ export const MERMAID_ESSENTIAL_RULES = `## MERMAID SYNTAX RULES
 9. **Subgraph direction ignored** — When nodes inside a subgraph link to nodes outside it, the subgraph \`direction\` is silently overridden by the parent
 10. **Pie values must be positive** — Zero or negative values cause silent errors
 11. **Duplicate node IDs with different shapes** — \`A[rect]\` then \`A(round)\` causes unpredictable rendering. Define shape once, reference by ID after
+12. **xychart-beta data arrays are numbers only** — \`[10, 20, 30]\` NOT \`["10", "20", "30"]\` or \`[China:25, US:15]\`. No strings, no key:value pairs — just plain numbers
+13. **xychart-beta series name goes before the array** — \`bar "UK" [50, 5, 1]\` NOT \`bar ["UK", "50", "5"]\`. Categories go in x-axis, not in bar/line arrays
+14. **Horizontal xychart axis swap** — For \`xychart-beta horizontal\`, just add \`horizontal\` — do NOT swap axis definitions. x-axis still holds categories, y-axis still holds the value label
+15. **ER cardinality in class diagrams** — \`{\`, \`}\`, \`|\` cardinality markers (e.g. \`||--o{\`, \`}|--||\`, \`*--o{\`) are erDiagram-only and will break class diagrams. Class diagrams use: \`<|--\`, \`*--\`, \`o--\`, \`-->\`, \`..>\`, \`..|>\` with optional quoted multiplicity: \`A "1" *-- "*" B\`
+16. **Percent sign in labels** — \`%\` breaks the parser (conflicts with \`%%\` comment syntax). Use "pct" or spell out "percent" instead
+17. **Class annotations in other diagrams** — \`<<interface>>\`, \`<<abstract>>\`, \`<<test>>\` are classDiagram-only. Do NOT use \`<<...>>\` in requirementDiagram, erDiagram, or other types
+18. **quadrantChart data points** — Must be numeric \`Name: [x, y]\` with x,y between 0 and 1 (e.g. \`Task A: [0.3, 0.7]\`). NOT categorical labels. Requires \`x-axis\`, \`y-axis\`, and \`quadrant-1..4\` definitions
+19. **sankey-beta is CSV only** — Uses \`source,target,value\` rows (e.g. \`Fossil,Asia,17.5\`). No \`-->\` arrows, no \`[labels]\`, no \`title\`. NOT flowchart syntax
+20. **\`title\` is not universal** — Only supported in: xychart-beta, pie, gantt, quadrantChart, journey, timeline. Do NOT add \`title\` to flowchart, sequenceDiagram, classDiagram, erDiagram, block-beta, sankey-beta, architecture-beta, kanban, or treemap-beta
+21. **C4 boundaries vs elements** — Only \`Boundary\`, \`Enterprise_Boundary\`, \`System_Boundary\`, \`Container_Boundary\` can have \`{ }\` children. There is NO \`Component_Boundary\`. \`Container()\`, \`Component()\`, \`System()\` are leaf elements — do NOT add \`{ }\` to them
+22. **Flowchart syntax in other diagrams** — \`A[label] --> B[label]\` is flowchart-only. architecture-beta needs \`service\`/\`group\` keywords with icons and directional edges (\`T/B/L/R\`). block-beta needs \`columns\` grid layout. sankey-beta needs CSV rows. Each diagram type has its own syntax
+23. **\`Note over\` max 2 participants** — In sequenceDiagram, \`Note over A,B:\` works but \`Note over A,B,C:\` will fail with a parse error. Use separate notes or \`rect\` to span 3+ participants
 
-## WHICH DIAGRAM TYPE TO USE
-| Need | Diagram Type |
-|------|-------------|
-| Process flow / algorithm | \`flowchart\` |
-| API call sequence / protocol | \`sequenceDiagram\` |
-| Sequence diagrams (alt syntax) | \`zenuml\` |
-| OOP / system structure | \`classDiagram\` |
-| State machine / lifecycle | \`stateDiagram-v2\` |
-| Database schema | \`erDiagram\` |
-| Requirements tracing | \`requirementDiagram\` |
-| Project timeline / schedule | \`gantt\` |
-| Distribution / proportions | \`pie\` |
-| Brainstorming / hierarchy | \`mindmap\` |
-| Historical timeline | \`timeline\` |
-| Git branch strategy | \`gitGraph\` |
-| UX user flow satisfaction | \`journey\` |
-| 2D comparison matrix | \`quadrantChart\` |
-| Line/bar charts | \`xychart-beta\` |
-| Flow / energy diagrams | \`sankey-beta\` |
-| Block diagrams | \`block-beta\` |
-| Network packet structure | \`packet-beta\` |
-| Kanban boards | \`kanban\` |
-| Cloud / infra architecture | \`architecture-beta\` |
-| Radar / spider charts | \`radar-beta\` |
-| Hierarchical proportions | \`treemap-beta\` |
-| C4 architecture model | \`C4Context\` / \`C4Container\` / \`C4Component\` / \`C4Deployment\` |
+## AVAILABLE DIAGRAM TYPES
+| Diagram Type | Use For |
+|-------------|---------|
+| \`flowchart\` | Process flows, algorithms, decision trees |
+| \`sequenceDiagram\` | API calls, protocols, message exchanges between actors |
+| \`classDiagram\` | OOP class structure, interfaces, inheritance |
+| \`stateDiagram-v2\` | State machines, lifecycles, transitions |
+| \`erDiagram\` | Database schemas, entity relationships |
+| \`requirementDiagram\` | Requirements tracing, verification |
+| \`gantt\` | Project schedules, task timelines with dependencies |
+| \`pie\` | Distribution / proportions as slices |
+| \`mindmap\` | Brainstorming, topic hierarchies |
+| \`timeline\` | Historical events, chronological milestones |
+| \`gitGraph\` | Git branch strategies, merge flows |
+| \`journey\` | UX user flows with satisfaction scores |
+| \`quadrantChart\` | 2D comparison (effort vs impact, priority matrices) |
+| \`xychart-beta\` | Stacked bar charts (vertical/horizontal), line charts, or combined bar+line |
+| \`sankey-beta\` | Flow/energy diagrams, resource distribution |
+| \`block-beta\` | Block/grid diagrams, system layouts |
+| \`kanban\` | Kanban boards, workflow columns with tasks |
+| \`architecture-beta\` | Cloud/infra architecture, service topology |
+| \`treemap-beta\` | Hierarchical proportions, nested area charts |
+| \`C4Context\` / \`C4Container\` / \`C4Component\` / \`C4Deployment\` | C4 architecture model at different zoom levels |
 
 ## MERMAID COLORS & LEGENDS
 - Do NOT add YAML frontmatter with config/theme/themeVariables — colors are applied automatically.
@@ -87,14 +96,11 @@ export const mermaidDocSections: Record<string, string> = /* @__PURE__ */ (() =>
     xyChart: ['xychart-beta'],
     sankey: ['sankey-beta'],
     block: ['block-beta'],
-    packet: ['packet-beta'],
     kanban: ['kanban'],
     architecture: ['architecture-beta'],
-    radar: ['radar-beta'],
     treemap: ['treemap-beta'],
     c4: ['C4Context', 'C4Container', 'C4Component', 'C4Dynamic', 'C4Deployment'],
     requirementDiagram: ['requirementDiagram'],
-    zenuml: ['zenuml'],
   };
 
   const sections: Record<string, string> = {};

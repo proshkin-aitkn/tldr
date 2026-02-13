@@ -11,13 +11,27 @@ export const PALETTE = {
           '#34d399','#fb923c','#a5b4fc','#fca5a5'],
 } as const;
 
-/** Derive pie1-pie12 and cScale0-cScale11 from PALETTE */
+/** Derive pie1-12, cScale0-11 (+ label/peer), git0-7, fillType0-7 from PALETTE */
 function paletteVars(theme: 'light' | 'dark') {
   const colors = PALETTE[theme];
+  const labelColor = theme === 'dark' ? '#1a1c1e' : '#ffffff';
   const vars: Record<string, string> = {};
   for (let i = 0; i < colors.length; i++) {
     vars[`pie${i + 1}`] = colors[i];
     vars[`cScale${i}`] = colors[i];
+    vars[`cScaleLabel${i}`] = labelColor;
+    vars[`cScalePeer${i}`] = colors[i];
+  }
+  // gitGraph branch colors (git0..7)
+  for (let i = 0; i < 8; i++) {
+    vars[`git${i}`] = colors[i % colors.length];
+  }
+  // fillType for journey/state (0..7)
+  const fills = theme === 'light'
+    ? ['#dbe4ff', '#e8eaf6', '#dcfce7', '#fef3c7', '#fce7f3', '#e0e7ff', '#d1fae5', '#fff7ed']
+    : ['#1a3a8a', '#3a3d52', '#052e16', '#78350f', '#831843', '#312e81', '#064e3b', '#7c2d12'];
+  for (let i = 0; i < fills.length; i++) {
+    vars[`fillType${i}`] = fills[i];
   }
   return vars;
 }
@@ -67,10 +81,24 @@ const MERMAID_THEME_VARS = {
     // State / class
     labelColor: '#1a1c1e',
     altBackground: '#f3f4f6',
-    fillType0: '#dbe4ff',
-    fillType1: '#e8eaf6',
-    fillType2: '#dcfce7',
-    fillType3: '#fef3c7',
+    // Flowchart
+    defaultLinkColor: '#74777f',
+    // Mindmap
+    mindmapRootColor: '#dbe4ff',
+    mindmapTextColor: '#0a2463',
+    mindmapMainColor: '#1a56db',
+    mindmapSecondaryColor: '#e8eaf6',
+    mindmapLineColor: '#74777f',
+    // Gantt
+    sectionBkgColor: '#dbe4ff',
+    sectionBkgColor2: '#e8eaf6',
+    altSectionBkgColor: '#f3f4f6',
+    taskBkgColor: '#dbe4ff',
+    taskBorderColor: '#1a56db',
+    taskTextColor: '#0a2463',
+    doneTaskBkgColor: '#dcfce7',
+    critBkgColor: '#fef3c7',
+    todayLineColor: '#dc2626',
   },
   dark: {
     primaryColor: '#1a3a8a',
@@ -116,10 +144,24 @@ const MERMAID_THEME_VARS = {
     // State / class
     labelColor: '#e3e2e6',
     altBackground: '#2b2d31',
-    fillType0: '#1a3a8a',
-    fillType1: '#3a3d52',
-    fillType2: '#052e16',
-    fillType3: '#78350f',
+    // Flowchart
+    defaultLinkColor: '#8e9099',
+    // Mindmap
+    mindmapRootColor: '#1a3a8a',
+    mindmapTextColor: '#dbe4ff',
+    mindmapMainColor: '#b4c5ff',
+    mindmapSecondaryColor: '#3a3d52',
+    mindmapLineColor: '#8e9099',
+    // Gantt
+    sectionBkgColor: '#1a3a8a',
+    sectionBkgColor2: '#3a3d52',
+    altSectionBkgColor: '#212326',
+    taskBkgColor: '#1a3a8a',
+    taskBorderColor: '#b4c5ff',
+    taskTextColor: '#dbe4ff',
+    doneTaskBkgColor: '#052e16',
+    critBkgColor: '#78350f',
+    todayLineColor: '#f87171',
   },
 } as const;
 
@@ -238,6 +280,17 @@ export function fixMermaidBlocks(md: string): string {
   return md.replace(FIX_MERMAID_RE, '```mermaid\n$1');
 }
 
+/**
+ * Apply all mermaid syntax fixes to full markdown text.
+ * Fixes ER-style arrows in classDiagram blocks so exported .md is also clean.
+ */
+export function fixMermaidSyntax(md: string): string {
+  return md.replace(/```mermaid\n([\s\S]*?)```/g, (block, source: string) => {
+    const fixed = fixClassDiagramRelations(source);
+    return fixed === source ? block : '```mermaid\n' + fixed + '```';
+  });
+}
+
 /** Parse xychart-beta series — returns array of {type, name} or null if <2 series. */
 function parseXyChartSeries(source: string): { type: 'line' | 'bar'; name: string }[] | null {
   const re = /^\s*(line|bar)\s*(?:"([^"]*)")?\s*\[/gm;
@@ -301,6 +354,20 @@ function stackBarSeries(source: string): string {
   }
 
   return result;
+}
+
+/**
+ * Fix ER-style relationship arrows in classDiagram.
+ * LLMs frequently generate `||--o{`, `}|--|{` etc. which are erDiagram-only.
+ * Replace with `-->` so the diagram renders instead of crashing.
+ */
+function fixClassDiagramRelations(source: string): string {
+  if (!source.match(/^\s*classDiagram/m)) return source;
+  // Match relationship lines where the arrow contains { or } (ER cardinality markers)
+  return source.replace(
+    /^(\s*\w+\s+)(\S*[{}]\S*)(\s+\w+\s*(?::.*)?$)/gm,
+    '$1-->$3',
+  );
 }
 
 /** Create a legend element for xychart-beta series. Uses inline styles for copy/paste survival. */
@@ -374,7 +441,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
         const source = el.dataset.source || el.textContent || '';
         if (!source.trim()) continue;
         const renderId = `mermaid-${Date.now()}-${renderCounter++}`;
-        const renderSource = stackBarSeries(source);
+        const renderSource = fixClassDiagramRelations(stackBarSeries(source));
         try {
           const { svg, bindFunctions } = await mermaid.render(renderId, renderSource);
           if (cancelled) return;

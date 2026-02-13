@@ -117,6 +117,8 @@ Note over Alice,Bob: Spanning note
 Note over Alice: Line1<br/>Line2
 ```
 
+**Maximum 2 participants** in `Note over` — `Note over A,B,C:` will fail. Use separate notes or `rect` for spanning 3+.
+
 ## Line Breaks
 
 In messages and notes use `<br/>`:
