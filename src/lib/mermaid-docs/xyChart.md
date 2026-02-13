@@ -25,7 +25,7 @@ This shows all features together. Here's what's required vs optional:
 - `title "..."` — chart title (quote multi-word titles)
 - `x-axis [...]` — categorical labels; omit for auto-numbered
 - `y-axis "title"` — axis label; omit for no label
-- `horizontal` after `xychart-beta` — rotates chart (default: vertical)
+- `horizontal` after `xychart-beta` — rotates chart (default: vertical); do NOT swap axis definitions — x-axis still holds categories, y-axis still holds the value label
 - Series names: `bar "Revenue" [...]` — quote multi-word names; always provide a name for legend clarity
 
 ## Y-Axis: Always Prefer Auto-Scale
