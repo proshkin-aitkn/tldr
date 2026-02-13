@@ -27,6 +27,7 @@ Works everywhere:
   - Reddit threads (post + comment tree with scores)
   - X/Twitter threads (full conversation with engagement data)
   - Facebook posts (text, images, reactions, and comments)
+  - GitHub (PRs, issues, code, repos, commits, and releases)
   - Google Docs
   - SPAs and web apps (Claude, ChatGPT, etc.)
   - Any web page
@@ -45,6 +46,10 @@ More features:
   - Light, dark, and system themes
   - Configurable summary language and detail level
   - Auto-translation of summaries and notable quotes into your preferred language
+  - Session persistence — summaries survive tab reloads and navigation
+  - Smart copy — rich text for Google Docs + plain markdown, diagrams export as images
+  - Print any summary directly from the side panel
+  - Table extraction and data charts from structured page content
   - Markdown export for offline use
   - Custom extra sections via chat (cheat sheets, reference tables, etc.)
 
