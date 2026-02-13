@@ -64,6 +64,16 @@ interface TabState {
 }
 
 
+/** Count total mermaid code blocks across all summary text fields. */
+function countMermaidBlocks(summary: SummaryDocument): number {
+  const fields = [
+    summary.tldr, summary.summary, summary.factCheck,
+    summary.conclusion,
+    ...(summary.extraSections ? Object.values(summary.extraSections) : []),
+  ].filter(Boolean) as string[];
+  return fields.reduce((n, f) => n + extractMermaidSources(f).length, 0);
+}
+
 async function findMermaidErrors(
   summary: SummaryDocument,
 ): Promise<Array<{ source: string; error: string }>> {
@@ -125,6 +135,106 @@ function annotateSummaryFields(
  * Attempt 5: ask LLM to remove all broken diagrams.
  * Final fallback: strip broken blocks client-side.
  */
+interface AutoFixResult {
+  summary: SummaryDocument;
+  /** Number of mermaid blocks that were removed (not fixed) during auto-recovery. */
+  chartsRemoved: number;
+}
+
+/** State for paused (step-by-step) mermaid auto-fix when debug panel is open. */
+interface PendingMermaidFix {
+  summary: SummaryDocument;
+  originalSummary: SummaryDocument;
+  content: ExtractedContent;
+  theme: 'light' | 'dark';
+  attempt: number;
+  fixMessages: DisplayMessage[];
+  initialChartCount: number;
+  errors: Array<{ source: string; error: string }>;
+  skipped?: boolean;
+}
+
+/** Build the fix request prompt for a mermaid fix attempt (pure, no side effects). */
+function buildMermaidFixPrompt(
+  finalSummary: SummaryDocument,
+  errors: Array<{ source: string; error: string }>,
+  attempt: number,
+): string {
+  const annotatedSummary = annotateSummaryFields(finalSummary, errors);
+  if (attempt <= 4) {
+    const docs = getRecoveryDocs(errors);
+    return `You generated this summary but ${errors.length} mermaid chart(s) have errors.\nThe errors are annotated inline as <!-- MERMAID ERROR: ... --> comments right after the broken diagrams.\n\nCurrent summary:\n${JSON.stringify(annotatedSummary, null, 2)}\n\nHere is documentation that may help you resolve the issues:\n${docs}\n\nThis is your attempt ${attempt} of 4 to fix all issues. Return the corrected fields in "updates". Set "text" to "".\nRules:\n- Fix the mermaid syntax errors in place.\n- Do NOT add commentary or changelog.\n- All diagrams MUST use \`\`\`mermaid fenced code blocks.\n${MERMAID_ESSENTIAL_RULES}`;
+  }
+  return `You generated this summary but ${errors.length} mermaid chart(s) still have errors after 4 fix attempts.\nREMOVE all broken mermaid diagrams from the summary. You MUST also:\n- Remove any legend line that accompanied a removed diagram (e.g. lines with colored squares like 🟦 🟧 🟩 or circles like 🔵 🟠 🟢).\n- If an extraSection existed ONLY to hold a diagram (and now has no meaningful content), delete it with "__DELETE__".\n- Rewrite any surrounding text that references a removed diagram so it reads naturally without it.\nThe broken diagrams are annotated with <!-- MERMAID ERROR: ... --> comments.\n\nCurrent summary:\n${JSON.stringify(annotatedSummary, null, 2)}\n\nReturn the corrected fields in "updates". Set "text" to "".`;
+}
+
+/**
+ * Run one mermaid fix attempt. Returns updated summary or null if the LLM couldn't fix.
+ */
+async function runMermaidFixAttempt(
+  finalSummary: SummaryDocument,
+  originalSummary: SummaryDocument,
+  errors: Array<{ source: string; error: string }>,
+  attempt: number,
+  content: ExtractedContent,
+  theme: 'light' | 'dark',
+  baseChatMessages: DisplayMessage[],
+  fixMessages: DisplayMessage[],
+  setChatMessages: (fn: (prev: DisplayMessage[]) => DisplayMessage[]) => void,
+  setRawResponses: (fn: (prev: string[]) => string[]) => void,
+  setConversationLog?: (log: { role: string; content: string }[]) => void,
+): Promise<{ summary: SummaryDocument | null; fixMessages: DisplayMessage[] }> {
+  const fixRequest = buildMermaidFixPrompt(finalSummary, errors, attempt);
+
+  const userMsg: DisplayMessage = { role: 'user', content: fixRequest, internal: true };
+  fixMessages.push(userMsg);
+  setChatMessages(prev => [...prev, userMsg]);
+
+  const allMessages: ChatMessage[] = [
+    ...baseChatMessages.map(m => ({ role: m.role, content: m.content })),
+    ...fixMessages.map(m => ({ role: m.role, content: m.content })),
+  ];
+
+  const fixResponse = await sendMessage({
+    type: 'CHAT_MESSAGE',
+    messages: allMessages,
+    summary: finalSummary,
+    content,
+    theme,
+  }) as ChatResponseMessage;
+
+  // Update debug panel with the actual conversation from this fix attempt
+  if (fixResponse.conversationLog?.length && setConversationLog) {
+    setConversationLog(fixResponse.conversationLog);
+  }
+
+  if (fixResponse.success && fixResponse.message) {
+    const fixRaw = fixResponse.rawResponses?.length ? fixResponse.rawResponses : [fixResponse.message!];
+    setRawResponses(prev => [...prev, ...fixRaw]);
+    const { updates: fixUpdates, text: chatText } = extractJsonAndText(fixResponse.message);
+    const displayText = chatText || (fixUpdates ? 'Summary corrected.' : 'Failed to fix mermaid diagrams.');
+    const assistantMsg: DisplayMessage = { role: 'assistant', content: displayText, internal: true };
+    fixMessages.push(assistantMsg);
+    setChatMessages(prev => [...prev, assistantMsg]);
+    if (fixUpdates) {
+      const merged = mergeSummaryUpdates(finalSummary, fixUpdates);
+      merged.llmProvider = originalSummary.llmProvider;
+      merged.llmModel = originalSummary.llmModel;
+      return { summary: merged, fixMessages };
+    }
+  }
+  return { summary: null, fixMessages };
+}
+
+function finalizeMermaidFix(finalSummary: SummaryDocument, initialChartCount: number, remainingErrors: Array<{ source: string; error: string }>): AutoFixResult {
+  let result = finalSummary;
+  if (remainingErrors.length > 0) {
+    result = stripBrokenFromSummary(result, remainingErrors.map(e => e.source));
+  }
+  const finalChartCount = countMermaidBlocks(result);
+  return { summary: result, chartsRemoved: Math.max(0, initialChartCount - finalChartCount) };
+}
+
 async function autoFixMermaid(
   summary: SummaryDocument,
   content: ExtractedContent,
@@ -133,70 +243,103 @@ async function autoFixMermaid(
   baseChatMessages: DisplayMessage[],
   setChatMessages: (fn: (prev: DisplayMessage[]) => DisplayMessage[]) => void,
   setRawResponses: (fn: (prev: string[]) => string[]) => void,
-): Promise<SummaryDocument> {
+  setConversationLog?: (log: { role: string; content: string }[]) => void,
+): Promise<AutoFixResult> {
   let finalSummary = summary;
   const fixMessages: DisplayMessage[] = [];
+  const initialChartCount = countMermaidBlocks(summary);
 
   for (let attempt = 1; attempt <= 5; attempt++) {
     const errors = await findMermaidErrors(finalSummary);
     if (errors.length === 0) break;
 
-    // Show intermediate summary with broken charts hidden
     const strippedSummary = stripBrokenFromSummary(finalSummary, errors.map(e => e.source));
     setSummary(strippedSummary);
 
-    let fixRequest: string;
-    if (attempt <= 4) {
-      // Annotate the ORIGINAL summary fields with inline errors
-      const annotatedSummary = annotateSummaryFields(finalSummary, errors);
-      const docs = getRecoveryDocs(errors);
-      fixRequest = `You generated this summary but ${errors.length} mermaid chart(s) have errors.\nThe errors are annotated inline as <!-- MERMAID ERROR: ... --> comments right after the broken diagrams.\n\nCurrent summary:\n${JSON.stringify(annotatedSummary, null, 2)}\n\nHere is documentation that may help you resolve the issues:\n${docs}\n\nThis is your attempt ${attempt} of 4 to fix all issues. Return the corrected fields in "updates". Set "text" to "".\nRules:\n- Fix the mermaid syntax errors in place.\n- Do NOT add commentary or changelog.\n- All diagrams MUST use \`\`\`mermaid fenced code blocks.\n${MERMAID_ESSENTIAL_RULES}`;
-    } else {
-      // Attempt 5: ask LLM to remove all broken diagrams
-      const annotatedSummary = annotateSummaryFields(finalSummary, errors);
-      fixRequest = `You generated this summary but ${errors.length} mermaid chart(s) still have errors after 4 fix attempts.\nREMOVE all broken mermaid diagrams from the summary. If any surrounding text references a removed diagram, rewrite it to make sense without the diagram.\nThe broken diagrams are annotated with <!-- MERMAID ERROR: ... --> comments.\n\nCurrent summary:\n${JSON.stringify(annotatedSummary, null, 2)}\n\nReturn the corrected fields in "updates". Set "text" to "".`;
-    }
-
-    const userMsg: DisplayMessage = { role: 'user', content: fixRequest, internal: true };
-    fixMessages.push(userMsg);
-    setChatMessages(prev => [...prev, userMsg]);
-
-    const allMessages: ChatMessage[] = [
-      ...baseChatMessages.map(m => ({ role: m.role, content: m.content })),
-      ...fixMessages.map(m => ({ role: m.role, content: m.content })),
-    ];
-
-    const fixResponse = await sendMessage({
-      type: 'CHAT_MESSAGE',
-      messages: allMessages,
-      summary: finalSummary,
-      content,
-      theme,
-    }) as ChatResponseMessage;
-
-    if (fixResponse.success && fixResponse.message) {
-      const fixRaw = fixResponse.rawResponses?.length ? fixResponse.rawResponses : [fixResponse.message!];
-      setRawResponses(prev => [...prev, ...fixRaw]);
-      const { updates: fixUpdates, text: chatText } = extractJsonAndText(fixResponse.message);
-      const displayText = chatText || (fixUpdates ? 'Summary corrected.' : 'Failed to fix mermaid diagrams.');
-      const assistantMsg: DisplayMessage = { role: 'assistant', content: displayText, internal: true };
-      fixMessages.push(assistantMsg);
-      setChatMessages(prev => [...prev, assistantMsg]);
-      if (fixUpdates) {
-        finalSummary = mergeSummaryUpdates(finalSummary, fixUpdates);
-        finalSummary.llmProvider = summary.llmProvider;
-        finalSummary.llmModel = summary.llmModel;
-      } else break;
+    const result = await runMermaidFixAttempt(
+      finalSummary, summary, errors, attempt, content, theme,
+      baseChatMessages, fixMessages, setChatMessages, setRawResponses, setConversationLog,
+    );
+    if (result.summary) {
+      finalSummary = result.summary;
     } else break;
   }
 
-  // Final fallback: strip any remaining broken blocks client-side
   const remainingErrors = await findMermaidErrors(finalSummary);
-  if (remainingErrors.length > 0) {
-    finalSummary = stripBrokenFromSummary(finalSummary, remainingErrors.map(e => e.source));
+  return finalizeMermaidFix(finalSummary, initialChartCount, remainingErrors);
+}
+
+/**
+ * Stepped mermaid auto-fix: runs ONE attempt, then pauses and sets pendingFix
+ * so the debug panel can show a "Next fix attempt" button. Resolves only after
+ * all attempts finish or the user stops.
+ */
+async function autoFixMermaidStepped(
+  summary: SummaryDocument,
+  content: ExtractedContent,
+  theme: 'light' | 'dark',
+  setSummary: (s: SummaryDocument) => void,
+  baseChatMessages: DisplayMessage[],
+  setChatMessages: (fn: (prev: DisplayMessage[]) => DisplayMessage[]) => void,
+  setRawResponses: (fn: (prev: string[]) => string[]) => void,
+  setPendingFix: (fix: PendingMermaidFix | null) => void,
+  setConversationLog?: (log: { role: string; content: string }[]) => void,
+): Promise<AutoFixResult> {
+  let finalSummary = summary;
+  const fixMessages: DisplayMessage[] = [];
+  const initialChartCount = countMermaidBlocks(summary);
+
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const errors = await findMermaidErrors(finalSummary);
+    if (errors.length === 0) break;
+
+    const strippedSummary = stripBrokenFromSummary(finalSummary, errors.map(e => e.source));
+    setSummary(strippedSummary);
+
+    // Pre-build the fix prompt so the debug panel can show it before the user clicks
+    const previewPrompt = buildMermaidFixPrompt(finalSummary, errors, attempt);
+    if (setConversationLog) {
+      // Show what will be sent: previous messages + the upcoming fix request
+      const previewLog = [
+        ...baseChatMessages.map(m => ({ role: m.role, content: m.content })),
+        ...fixMessages.map(m => ({ role: m.role, content: m.content })),
+        { role: 'user', content: previewPrompt },
+      ];
+      setConversationLog(previewLog);
+    }
+
+    // Pause: set pending state and wait for user to click "Next attempt" or "Skip"
+    const pending: PendingMermaidFix = {
+      summary: finalSummary,
+      originalSummary: summary,
+      content,
+      theme,
+      attempt,
+      fixMessages: [...fixMessages],
+      initialChartCount,
+      errors,
+    };
+    await new Promise<void>((resolve) => {
+      (pending as PendingMermaidFix & { _resolve: () => void })._resolve = resolve;
+      setPendingFix(pending);
+    });
+    setPendingFix(null);
+
+    // If user clicked Skip, stop the loop
+    if (pending.skipped) break;
+
+    const result = await runMermaidFixAttempt(
+      finalSummary, summary, errors, attempt, content, theme,
+      baseChatMessages, fixMessages, setChatMessages, setRawResponses, setConversationLog,
+    );
+    if (result.summary) {
+      finalSummary = result.summary;
+    } else break;
   }
 
-  return finalSummary;
+  setPendingFix(null);
+  const remainingErrors = await findMermaidErrors(finalSummary);
+  return finalizeMermaidFix(finalSummary, initialChartCount, remainingErrors);
 }
 
 /** Open a print-ready popup window, auto-print, then close it. */
@@ -341,6 +484,11 @@ export function App() {
 
   // Debug prompt viewer
   const [debugOpen, setDebugOpen] = useState(false);
+  const debugOpenRef = useRef(false);
+  debugOpenRef.current = debugOpen;
+
+  // Step-by-step mermaid fix state (when debug panel is open)
+  const [pendingFix, setPendingFix] = useState<PendingMermaidFix | null>(null);
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -767,10 +915,16 @@ export function App() {
       }
 
       // Validate mermaid diagrams and auto-fix via chat round-trip (spinner stays active)
-      const finalSummary = await autoFixMermaid(
-        summaryResponse.data, extractedContent, resolvedTheme,
-        (s) => setSummary(s), chatMessagesRef.current, setChatMessages, setRawResponses,
-      );
+      const { summary: finalSummary } = debugOpenRef.current
+        ? await autoFixMermaidStepped(
+            summaryResponse.data, extractedContent, resolvedTheme,
+            (s) => setSummary(s), chatMessagesRef.current, setChatMessages, setRawResponses,
+            setPendingFix, setConversationLog,
+          )
+        : await autoFixMermaid(
+            summaryResponse.data, extractedContent, resolvedTheme,
+            (s) => setSummary(s), chatMessagesRef.current, setChatMessages, setRawResponses, setConversationLog,
+          );
 
       if (activeTabIdRef.current === originTabId) {
         resetSectionState();
@@ -917,9 +1071,10 @@ export function App() {
     doExport();
   }, [summary, content, exporting, doExport]);
 
-  const handleChatSend = useCallback(async (text: string) => {
+  const handleChatSend = useCallback(async (text: string, opts?: { internal?: boolean }) => {
     if (!content) return;
     const originTabId = activeTabIdRef.current;
+    const isInternal = opts?.internal ?? false;
 
     // Snapshot the current summary so we can revert to this point later
     const snapshotBefore = summary ? structuredClone(summary) : null;
@@ -927,6 +1082,7 @@ export function App() {
     setChatMessages((prev) => [...prev, {
       role: 'user',
       content: text,
+      internal: isInternal,
       summaryBefore: snapshotBefore ?? undefined,
       didUpdateSummary: false, // will be patched after we know
     }]);
@@ -977,12 +1133,20 @@ export function App() {
       }
 
       // Never show raw JSON — use chat text if available, otherwise a status message
-      const displayText = chatText || (updatedSummary ? 'Summary updated.' : 'Failed to update summary — please try again.');
+      let displayText = chatText || (updatedSummary ? 'Summary updated.' : 'Failed to update summary — please try again.');
 
       // Auto-fix broken mermaid diagrams in the updated summary
-      const fixedJson = updatedSummary
-        ? await autoFixMermaid(updatedSummary, content, resolvedTheme, (s) => setSummary(s), chatMessagesRef.current, setChatMessages, setRawResponses)
+      const fixResult = updatedSummary
+        ? debugOpenRef.current
+          ? await autoFixMermaidStepped(updatedSummary, content, resolvedTheme, (s) => setSummary(s), chatMessagesRef.current, setChatMessages, setRawResponses, setPendingFix, setConversationLog)
+          : await autoFixMermaid(updatedSummary, content, resolvedTheme, (s) => setSummary(s), chatMessagesRef.current, setChatMessages, setRawResponses, setConversationLog)
         : null;
+      const fixedJson = fixResult?.summary ?? null;
+
+      // If charts were removed during auto-fix, amend the display text so the user isn't told charts were added when they weren't
+      if (fixResult && fixResult.chartsRemoved > 0) {
+        displayText += ` (${fixResult.chartsRemoved} diagram${fixResult.chartsRemoved > 1 ? 's' : ''} could not be rendered and ${fixResult.chartsRemoved > 1 ? 'were' : 'was'} removed)`;
+      }
 
       // Patch didUpdateSummary on the user message we added earlier
       const summaryDidChange = fixedJson != null;
@@ -1004,9 +1168,9 @@ export function App() {
         if (fixedJson) {
           setSummary(fixedJson);
           setNotionUrl(null);
-          setToast({ message: 'Summary updated', type: 'success' });
+          if (!isInternal) setToast({ message: 'Summary updated', type: 'success' });
         }
-        setChatMessages((prev) => [...prev, { role: 'assistant', content: displayText }]);
+        setChatMessages((prev) => [...prev, { role: 'assistant', content: displayText, internal: isInternal }]);
       } else if (originTabId != null) {
         const saved = tabStatesRef.current.get(originTabId);
         if (saved) {
@@ -1014,7 +1178,7 @@ export function App() {
             saved.summary = fixedJson;
             saved.notionUrl = null;
           }
-          saved.chatMessages = [...saved.chatMessages, { role: 'assistant', content: displayText }];
+          saved.chatMessages = [...saved.chatMessages, { role: 'assistant', content: displayText, internal: isInternal }];
           saved.rawResponses = [...saved.rawResponses, ...chatRaw];
           saved.chatLoading = false;
         }
@@ -1022,11 +1186,11 @@ export function App() {
     } catch (err) {
       const errMsg = `Error: ${err instanceof Error ? err.message : String(err)}`;
       if (activeTabIdRef.current === originTabId) {
-        setChatMessages((prev) => [...prev, { role: 'assistant', content: errMsg }]);
+        setChatMessages((prev) => [...prev, { role: 'assistant', content: errMsg, internal: isInternal }]);
       } else if (originTabId != null) {
         const saved = tabStatesRef.current.get(originTabId);
         if (saved) {
-          saved.chatMessages = [...saved.chatMessages, { role: 'assistant', content: errMsg }];
+          saved.chatMessages = [...saved.chatMessages, { role: 'assistant', content: errMsg, internal: isInternal }];
           saved.chatLoading = false;
         }
       }
@@ -1299,6 +1463,44 @@ export function App() {
               notionUrl={notionUrl}
               exporting={exporting}
               onNavigate={handleNavigate}
+              onDeleteSection={(key) => {
+                setSummary(prev => {
+                  if (!prev) return prev;
+                  const next = structuredClone(prev);
+                  if (key.startsWith('extra:')) {
+                    const extraKey = key.slice(6);
+                    if (next.extraSections) {
+                      delete next.extraSections[extraKey];
+                      if (Object.keys(next.extraSections).length === 0) delete next.extraSections;
+                    }
+                  } else if (key === 'tldr') {
+                    next.tldr = '';
+                  } else if (key === 'summary') {
+                    next.summary = '';
+                  } else if (key === 'conclusion') {
+                    next.conclusion = '';
+                  } else if (key === 'factCheck') {
+                    delete next.factCheck;
+                  } else if (key === 'prosAndCons') {
+                    delete next.prosAndCons;
+                  } else if (key === 'keyTakeaways') {
+                    next.keyTakeaways = [];
+                  } else if (key === 'notableQuotes') {
+                    next.notableQuotes = [];
+                  } else if (key === 'commentsHighlights') {
+                    delete next.commentsHighlights;
+                  } else if (key === 'relatedTopics') {
+                    next.relatedTopics = [];
+                  }
+                  return next;
+                });
+              }}
+              onAdjustSection={(sectionTitle, direction) => {
+                const prompt = direction === 'more'
+                  ? `Elaborate more on the "${sectionTitle}" section. Add more detail and depth while keeping the same structure.`
+                  : `Make the "${sectionTitle}" section shorter and more concise. Keep only the most important points.`;
+                handleChatSend(prompt, { internal: true });
+              }}
             />
           </div>
         )}
@@ -1330,6 +1532,66 @@ export function App() {
                 Thinking...
               </div>
             )}
+          </div>
+        )}
+
+        {/* Step-by-step mermaid fix button (debug mode) */}
+        {pendingFix && (
+          <div class="no-print" style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              flex: 1,
+              font: 'var(--md-sys-typescale-body-small)',
+              color: 'var(--md-sys-color-on-surface-variant)',
+              padding: '8px 12px',
+              borderRadius: 'var(--md-sys-shape-corner-medium)',
+              backgroundColor: 'var(--md-sys-color-error-container)',
+              lineHeight: 1.4,
+            }}>
+              {pendingFix.errors.length} broken diagram{pendingFix.errors.length > 1 ? 's' : ''} — attempt {pendingFix.attempt}/5
+              {pendingFix.errors.map((e, i) => (
+                <div key={i} style={{ marginTop: '4px', fontSize: '11px', opacity: 0.8 }}>
+                  {e.error.slice(0, 120)}{e.error.length > 120 ? '...' : ''}
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => {
+                const resolve = (pendingFix as PendingMermaidFix & { _resolve?: () => void })._resolve;
+                if (resolve) resolve();
+              }}
+              style={{
+                padding: '8px 16px',
+                borderRadius: 'var(--md-sys-shape-corner-full)',
+                border: 'none',
+                backgroundColor: 'var(--md-sys-color-primary)',
+                color: 'var(--md-sys-color-on-primary)',
+                font: 'var(--md-sys-typescale-label-medium)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {pendingFix.attempt <= 4 ? `Fix attempt ${pendingFix.attempt}` : 'Remove broken'}
+            </button>
+            <button
+              onClick={() => {
+                // Skip all remaining attempts — just strip client-side
+                pendingFix.skipped = true;
+                const resolve = (pendingFix as PendingMermaidFix & { _resolve?: () => void })._resolve;
+                if (resolve) resolve();
+              }}
+              style={{
+                padding: '8px 12px',
+                borderRadius: 'var(--md-sys-shape-corner-full)',
+                border: '1px solid var(--md-sys-color-outline)',
+                backgroundColor: 'transparent',
+                color: 'var(--md-sys-color-on-surface)',
+                font: 'var(--md-sys-typescale-label-medium)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Skip
+            </button>
           </div>
         )}
 

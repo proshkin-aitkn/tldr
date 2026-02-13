@@ -189,13 +189,14 @@ export function extractMermaidSources(md: string): string[] {
   return sources;
 }
 
-/** Remove ```mermaid...``` blocks whose source matches any in the broken list. */
+/** Remove ```mermaid...``` blocks whose source matches any in the broken list, plus trailing legend lines. */
 export function stripBrokenMermaidBlocks(md: string, brokenSources: string[]): string {
   if (brokenSources.length === 0) return md;
   let result = md;
   for (const source of brokenSources) {
     const escaped = source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const re = new RegExp('```mermaid\\n' + escaped + '\\n```', 'g');
+    // Match the mermaid block + optional trailing blank line + legend line (colored squares/circles like 🟦 🟧 🟩 🔵 🟠 🟢)
+    const re = new RegExp('```mermaid\\n' + escaped + '\\n```\\n*(?:[^\n]*[🟥🟧🟨🟩🟦🟪🟫⬜⬛🔴🟠🟡🟢🔵🟣🟤⚪⚫●][^\n]*\\n?)?', 'g');
     result = result.replace(re, '');
   }
   return result;

@@ -15,9 +15,11 @@ interface SummaryContentProps {
   notionUrl?: string | null;
   exporting?: boolean;
   onNavigate?: (url: string) => void;
+  onDeleteSection?: (sectionKey: string) => void;
+  onAdjustSection?: (sectionTitle: string, direction: 'more' | 'less') => void;
 }
 
-export function SummaryContent({ summary, content, onExport, notionUrl, exporting, onNavigate }: SummaryContentProps) {
+export function SummaryContent({ summary, content, onExport, notionUrl, exporting, onNavigate, onDeleteSection, onAdjustSection }: SummaryContentProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [mdSaved, setMdSaved] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -42,21 +44,31 @@ export function SummaryContent({ summary, content, onExport, notionUrl, exportin
     // eslint-disable-next-line jsx-a11y/click-events-have-key-events,jsx-a11y/no-static-element-interactions
     <div ref={containerRef} data-summary-container onClick={handleLinkClick}>
       {/* TLDR */}
-      <Section title="TL;DR" defaultOpen>
-        <div class="summary-callout">
-          <div style={{ font: 'var(--md-sys-typescale-body-large)', lineHeight: 1.5 }}><MarkdownRenderer content={tldrBody} /></div>
-          {(statusLabel || statusText) && (
-            <div style={{ marginTop: '10px', padding: '8px 12px', borderRadius: 'var(--md-sys-shape-corner-medium)', backgroundColor: 'var(--md-sys-color-surface-container)', display: 'flex', alignItems: 'baseline', gap: '8px', font: 'var(--md-sys-typescale-body-medium)', lineHeight: 1.4 }}>
-              {statusLabel && <StatusBadge label={statusLabel} fallbackState={content?.prState || content?.issueState} />}
-              {statusText && <span style={{ color: 'var(--md-sys-color-on-surface)' }}><InlineMarkdown text={statusText} /></span>}
-            </div>
-          )}
-        </div>
-      </Section>
+      {summary.tldr && (
+        <Section title="TL;DR" defaultOpen
+          onDelete={onDeleteSection ? () => onDeleteSection('tldr') : undefined}
+          onMore={onAdjustSection ? () => onAdjustSection('TL;DR', 'more') : undefined}
+          onLess={onAdjustSection ? () => onAdjustSection('TL;DR', 'less') : undefined}
+        >
+          <div class="summary-callout">
+            <div style={{ font: 'var(--md-sys-typescale-body-large)', lineHeight: 1.5 }}><MarkdownRenderer content={tldrBody} /></div>
+            {(statusLabel || statusText) && (
+              <div style={{ marginTop: '10px', padding: '8px 12px', borderRadius: 'var(--md-sys-shape-corner-medium)', backgroundColor: 'var(--md-sys-color-surface-container)', display: 'flex', alignItems: 'baseline', gap: '8px', font: 'var(--md-sys-typescale-body-medium)', lineHeight: 1.4 }}>
+                {statusLabel && <StatusBadge label={statusLabel} fallbackState={content?.prState || content?.issueState} />}
+                {statusText && <span style={{ color: 'var(--md-sys-color-on-surface)' }}><InlineMarkdown text={statusText} /></span>}
+              </div>
+            )}
+          </div>
+        </Section>
+      )}
 
       {/* Key Takeaways */}
       {summary.keyTakeaways.length > 0 && (
-        <Section title="Key Takeaways" defaultOpen>
+        <Section title="Key Takeaways" defaultOpen
+          onDelete={onDeleteSection ? () => onDeleteSection('keyTakeaways') : undefined}
+          onMore={onAdjustSection ? () => onAdjustSection('Key Takeaways', 'more') : undefined}
+          onLess={onAdjustSection ? () => onAdjustSection('Key Takeaways', 'less') : undefined}
+        >
           <ol style={{ paddingLeft: '24px', font: 'var(--md-sys-typescale-body-medium)', lineHeight: 1.6, color: 'var(--md-sys-color-on-surface)' }}>
             {summary.keyTakeaways.map((point, i) => (
               <li key={i} style={{ marginBottom: '4px', paddingLeft: '4px' }}><InlineMarkdown text={point} /></li>
@@ -66,15 +78,25 @@ export function SummaryContent({ summary, content, onExport, notionUrl, exportin
       )}
 
       {/* Summary */}
-      <Section title="Summary" defaultOpen>
-        <div style={{ font: 'var(--md-sys-typescale-body-medium)', lineHeight: 1.6 }}>
-          <MarkdownRenderer content={summary.summary} />
-        </div>
-      </Section>
+      {summary.summary && (
+        <Section title="Summary" defaultOpen
+          onDelete={onDeleteSection ? () => onDeleteSection('summary') : undefined}
+          onMore={onAdjustSection ? () => onAdjustSection('Summary', 'more') : undefined}
+          onLess={onAdjustSection ? () => onAdjustSection('Summary', 'less') : undefined}
+        >
+          <div style={{ font: 'var(--md-sys-typescale-body-medium)', lineHeight: 1.6 }}>
+            <MarkdownRenderer content={summary.summary} />
+          </div>
+        </Section>
+      )}
 
       {/* Notable Quotes */}
       {summary.notableQuotes.length > 0 && (
-        <Section title="Notable Quotes">
+        <Section title="Notable Quotes"
+          onDelete={onDeleteSection ? () => onDeleteSection('notableQuotes') : undefined}
+          onMore={onAdjustSection ? () => onAdjustSection('Notable Quotes', 'more') : undefined}
+          onLess={onAdjustSection ? () => onAdjustSection('Notable Quotes', 'less') : undefined}
+        >
           {summary.notableQuotes.map((quote, i) => (
             <blockquote key={i} style={{
               borderLeft: '3px solid var(--md-sys-color-outline-variant)',
@@ -92,7 +114,11 @@ export function SummaryContent({ summary, content, onExport, notionUrl, exportin
 
       {/* Pros and Cons */}
       {summary.prosAndCons && (
-        <Section title="Pros & Cons">
+        <Section title="Pros & Cons"
+          onDelete={onDeleteSection ? () => onDeleteSection('prosAndCons') : undefined}
+          onMore={onAdjustSection ? () => onAdjustSection('Pros & Cons', 'more') : undefined}
+          onLess={onAdjustSection ? () => onAdjustSection('Pros & Cons', 'less') : undefined}
+        >
           <div class="pros-cons-grid">
             <div class="pros-card">
               <strong>Pros</strong>
@@ -112,7 +138,11 @@ export function SummaryContent({ summary, content, onExport, notionUrl, exportin
 
       {/* Fact Check */}
       {summary.factCheck && (
-        <Section title="Fact Check">
+        <Section title="Fact Check"
+          onDelete={onDeleteSection ? () => onDeleteSection('factCheck') : undefined}
+          onMore={onAdjustSection ? () => onAdjustSection('Fact Check', 'more') : undefined}
+          onLess={onAdjustSection ? () => onAdjustSection('Fact Check', 'less') : undefined}
+        >
           <div style={{ font: 'var(--md-sys-typescale-body-medium)', lineHeight: 1.5 }}>
             <MarkdownRenderer content={summary.factCheck} />
           </div>
@@ -121,7 +151,11 @@ export function SummaryContent({ summary, content, onExport, notionUrl, exportin
 
       {/* Comments Highlights */}
       {summary.commentsHighlights && summary.commentsHighlights.length > 0 && (
-        <Section title="Comment Highlights">
+        <Section title="Comment Highlights"
+          onDelete={onDeleteSection ? () => onDeleteSection('commentsHighlights') : undefined}
+          onMore={onAdjustSection ? () => onAdjustSection('Comment Highlights', 'more') : undefined}
+          onLess={onAdjustSection ? () => onAdjustSection('Comment Highlights', 'less') : undefined}
+        >
           <ul style={{ paddingLeft: '20px', font: 'var(--md-sys-typescale-body-medium)', lineHeight: 1.6 }}>
             {summary.commentsHighlights.map((h, i) => <li key={i}><InlineMarkdown text={h} /></li>)}
           </ul>
@@ -130,7 +164,11 @@ export function SummaryContent({ summary, content, onExport, notionUrl, exportin
 
       {/* Conclusion */}
       {summary.conclusion && (
-        <Section title="Conclusion">
+        <Section title="Conclusion"
+          onDelete={onDeleteSection ? () => onDeleteSection('conclusion') : undefined}
+          onMore={onAdjustSection ? () => onAdjustSection('Conclusion', 'more') : undefined}
+          onLess={onAdjustSection ? () => onAdjustSection('Conclusion', 'less') : undefined}
+        >
           <div class="summary-callout-conclusion">
             <div style={{ font: 'var(--md-sys-typescale-body-medium)', lineHeight: 1.5 }}>
               <MarkdownRenderer content={summary.conclusion} />
@@ -141,7 +179,11 @@ export function SummaryContent({ summary, content, onExport, notionUrl, exportin
 
       {/* Extra sections (added via chat refinement) */}
       {summary.extraSections && Object.entries(summary.extraSections).map(([title, content]) => (
-        <Section key={`extra-${title}`} title={title}>
+        <Section key={`extra-${title}`} title={title}
+          onDelete={onDeleteSection ? () => onDeleteSection(`extra:${title}`) : undefined}
+          onMore={onAdjustSection ? () => onAdjustSection(title, 'more') : undefined}
+          onLess={onAdjustSection ? () => onAdjustSection(title, 'less') : undefined}
+        >
           <div style={{ font: 'var(--md-sys-typescale-body-medium)', lineHeight: 1.6 }}>
             <MarkdownRenderer content={content} />
           </div>
@@ -150,7 +192,7 @@ export function SummaryContent({ summary, content, onExport, notionUrl, exportin
 
       {/* Related Topics */}
       {summary.relatedTopics.length > 0 && (
-        <Section title="Related Topics">
+        <Section title="Related Topics" onDelete={onDeleteSection ? () => onDeleteSection('relatedTopics') : undefined}>
           <div>
             {summary.relatedTopics.map((topic, i) => (
               <a
@@ -476,7 +518,14 @@ const sectionUserState = new Map<string, boolean>();
 /** Reset user section overrides (call when generating a fresh summary for a new page). */
 export function resetSectionState() { sectionUserState.clear(); }
 
-function Section({ title, defaultOpen = false, children }: { title: string; defaultOpen?: boolean; children: preact.ComponentChildren }) {
+function Section({ title, defaultOpen = false, onDelete, onMore, onLess, children }: {
+  title: string;
+  defaultOpen?: boolean;
+  onDelete?: () => void;
+  onMore?: () => void;
+  onLess?: () => void;
+  children: preact.ComponentChildren;
+}) {
   const [open, setOpen] = useState(sectionUserState.get(title) ?? defaultOpen);
 
   const toggle = () => {
@@ -485,8 +534,10 @@ function Section({ title, defaultOpen = false, children }: { title: string; defa
     setOpen(next);
   };
 
+  const hasToolbar = onDelete || onMore || onLess;
+
   return (
-    <div style={{ marginBottom: '4px' }}>
+    <div class="summary-section" style={{ marginBottom: '4px', position: 'relative' }}>
       <button
         onClick={toggle}
         title={open ? `Collapse ${title}` : `Expand ${title}`}
@@ -514,6 +565,19 @@ function Section({ title, defaultOpen = false, children }: { title: string; defa
         }}>&#9654;</span>
         {title}
       </button>
+      {hasToolbar && (
+        <div class="section-toolbar no-print">
+          {onMore && (
+            <button onClick={(e) => { e.stopPropagation(); onMore(); }} title="Elaborate more">+</button>
+          )}
+          {onLess && (
+            <button onClick={(e) => { e.stopPropagation(); onLess(); }} title="Make shorter">&minus;</button>
+          )}
+          {onDelete && (
+            <button onClick={(e) => { e.stopPropagation(); onDelete(); }} class="section-toolbar-delete" title={`Remove ${title}`}>&#215;</button>
+          )}
+        </div>
+      )}
       <div class="section-content" style={{ paddingLeft: '4px', paddingBottom: '8px', display: open ? 'block' : 'none' }}>{children}</div>
     </div>
   );
@@ -532,7 +596,9 @@ function summaryToMarkdown(summary: SummaryDocument, content: ExtractedContent |
     if (meta.length) lines.push(meta.join(' | '), '');
   }
 
-  lines.push('## TL;DR', '', summary.tldr, '');
+  if (summary.tldr) {
+    lines.push('## TL;DR', '', summary.tldr, '');
+  }
 
   if (summary.keyTakeaways.length > 0) {
     lines.push('## Key Takeaways', '');
@@ -540,7 +606,9 @@ function summaryToMarkdown(summary: SummaryDocument, content: ExtractedContent |
     lines.push('');
   }
 
-  lines.push('## Summary', '', summary.summary, '');
+  if (summary.summary) {
+    lines.push('## Summary', '', summary.summary, '');
+  }
 
   if (summary.notableQuotes.length > 0) {
     lines.push('## Notable Quotes', '');

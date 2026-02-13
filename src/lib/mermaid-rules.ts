@@ -61,20 +61,34 @@ export const MERMAID_ESSENTIAL_RULES = `## MERMAID SYNTAX RULES
 | C4 architecture model | \`C4Context\` / \`C4Container\` / \`C4Component\` / \`C4Deployment\` |
 
 ## MERMAID COLORS & LEGENDS
-Always apply custom colors using YAML frontmatter with \`theme: base\`. Add a manual Markdown legend below the diagram when there is no built-in legend.
+IMPORTANT! Custom colors MUST be applied! Apply them with YAML frontmatter. Without custom colors they will look wrong AND the colors will not match the legend. CRITICAL: the top-level key MUST be \`config:\` — putting \`theme:\` at the top level is WRONG and will be ignored.
 
-**Color config by diagram type (YAML frontmatter):**
-- **xychart-beta** — ordered comma-separated palette: \`themeVariables: { xyChart: { plotColorPalette: "#4472C4, #ED7D31, #2CA02C" } }\`
-- **pie** — per-slice: \`themeVariables: { pie1: "#4472C4", pie2: "#ED7D31" }\`
-- **gantt** — task state: \`themeVariables: { taskBkgColor: "#4472C4", activeTaskBkgColor: "#2CA02C", critBkgColor: "#E00000", doneTaskBkgColor: "#999" }\`
-- **sequence** — actors/signals: \`themeVariables: { actorBkg: "#4472C4", actorTextColor: "#fff", signalColor: "#333", noteBkgColor: "#2CA02C" }\`
-- **quadrantChart** — quadrant fills: \`themeVariables: { quadrant1Fill: "#2CA02C", quadrant2Fill: "#4472C4", quadrant3Fill: "#ED7D31", quadrant4Fill: "#E00000" }\`
-- **timeline** — section scale: \`themeVariables: { cScale0: "#4472C4", cScale1: "#ED7D31", cScale2: "#2CA02C" }\`
-- **flowchart** — use \`classDef\` in body, NOT config: \`classDef blue fill:#4472C4,stroke:#333,color:#fff\` then \`A[Node]:::blue\`
+**Correct frontmatter structure** (note \`config:\` wrapper):
+\`\`\`
+---
+config:
+  theme: base
+  themeVariables:
+    ...
+---
+\`\`\`
+WRONG (missing config:): \`--- theme: base ... ---\`. ALWAYS nest under \`config:\`.
 
-**Legend rules:**
-- **pie**: has built-in legend — no action needed.
-- **All others**: add a Markdown legend line below the diagram, e.g.: \`🔵 Series A · 🟠 Series B · 🟢 Series C\``;
+**themeVariables by diagram type:**
+- **xychart-beta**: \`xyChart: { plotColorPalette: "#4472C4, #ED7D31, #2CA02C" }\`
+- **pie**: \`pie1: "#4472C4", pie2: "#ED7D31"\` (pie1–pie12 per slice)
+- **gantt**: \`taskBkgColor: "#4472C4", activeTaskBkgColor: "#2CA02C", critBkgColor: "#E00000", doneTaskBkgColor: "#999"\`
+- **sequence**: \`actorBkg: "#4472C4", actorTextColor: "#fff", signalColor: "#333", noteBkgColor: "#2CA02C"\`
+- **quadrantChart**: \`quadrant1Fill: "#2CA02C", quadrant2Fill: "#4472C4", quadrant3Fill: "#ED7D31", quadrant4Fill: "#E00000"\`
+- **timeline**: \`cScale0: "#4472C4", cScale1: "#ED7D31", cScale2: "#2CA02C"\`
+- **flowchart** — use \`classDef\` in diagram body, NOT frontmatter: \`classDef blue fill:#4472C4,stroke:#333,color:#fff\` then \`A[Node]:::blue\`
+
+**Legend rules (CRITICAL — colors and count must match the chart data):**
+- **pie**: has built-in legend — no legend needed.
+- **All other diagram types**: add a Markdown legend line BELOW the closing \`\`\` of the mermaid block.
+- The legend MUST have exactly the same number of items as data series/categories in the chart, using matching colors.
+- Example for 3 series: \`🟦 Series A · 🟧 Series B · 🟩 Series C\`
+- If the chart has 5 bars, the legend must list all 5 with matching color squares.`;
 
 /**
  * Map from mermaid diagram keyword → raw doc content.

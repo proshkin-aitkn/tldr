@@ -216,6 +216,40 @@
         background: var(--md-sys-color-error-container);
         color: var(--md-sys-color-on-error-container);
       }
+      /* Section toolbar (delete, +/- buttons) */
+      .section-toolbar {
+        position: absolute;
+        top: 6px;
+        right: 0;
+        display: flex;
+        gap: 2px;
+        opacity: 0;
+        transition: opacity 0.15s;
+        z-index: 1;
+      }
+      .summary-section:hover > .section-toolbar { opacity: 0.8; }
+      .section-toolbar > button {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        border: none;
+        background: var(--md-sys-color-surface-container-highest);
+        color: var(--md-sys-color-on-surface-variant);
+        font-size: 13px;
+        line-height: 20px;
+        text-align: center;
+        cursor: pointer;
+        padding: 0;
+      }
+      .section-toolbar > button:hover {
+        opacity: 1 !important;
+        background: var(--md-sys-color-secondary-container);
+        color: var(--md-sys-color-on-secondary-container);
+      }
+      .section-toolbar > .section-toolbar-delete:hover {
+        background: var(--md-sys-color-error-container);
+        color: var(--md-sys-color-on-error-container);
+      }
       .markdown-content pre.mermaid .node rect,
       .markdown-content pre.mermaid .node polygon,
       .markdown-content pre.mermaid .node circle { rx: 8; ry: 8; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.10)); }
