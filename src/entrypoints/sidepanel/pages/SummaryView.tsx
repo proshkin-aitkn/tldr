@@ -903,7 +903,7 @@ function splitTldrStatus(tldr: string): { body: string; statusLabel: string | nu
 
   let rest = match[1].trim();
   // Strip markdown bold/italic wrapping from label: "**Needs attention** — text" → "Needs attention — text"
-  rest = rest.replace(/^\*{1,2}(.+?)\*{1,2}(?=\s*[—–\-:]|\s*$)/, '$1').trim();
+  rest = rest.replace(/^([*_]{1,2})(.+?)\1(?=\s*[—–\-:]|\s*$)/, '$2').trim();
 
   // Try to extract a known status label from the beginning
   const lower = rest.toLowerCase();
