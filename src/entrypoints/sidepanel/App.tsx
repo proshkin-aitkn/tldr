@@ -1114,6 +1114,27 @@ export function App() {
     const chromeObj = (globalThis as unknown as { chrome: typeof chrome }).chrome;
     if (tabId == null) { chromeObj.tabs.create({ url }); return; }
 
+    // YouTube timestamp links: seek the player instead of navigating
+    const YT_RE = /(?:youtube\.com\/watch\?.*v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+    const cur = contentRef.current;
+    if (cur?.type === 'youtube') {
+      const linkVid = url.match(YT_RE)?.[1];
+      const curVid = cur.url.match(YT_RE)?.[1];
+      if (linkVid && linkVid === curVid) {
+        try {
+          const tValues = new URL(url).searchParams.getAll('t');
+          const t = tValues.length > 0 ? tValues[tValues.length - 1] : null;
+          if (t) {
+            const seconds = parseInt(t, 10);
+            if (!isNaN(seconds)) {
+              sendMessage({ type: 'SEEK_VIDEO', seconds } as SeekVideoMessage).catch(() => {});
+              return;
+            }
+          }
+        } catch { /* malformed URL — fall through */ }
+      }
+    }
+
     // Parse link and current page to detect same-page hash navigation
     try {
       const link = new URL(url);
